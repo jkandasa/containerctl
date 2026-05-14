@@ -53,6 +53,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if err := pingRuntime(ctx, rt); err != nil {
 		return err
 	}
+	applyAuthFile(rt, stack.AuthFile)
 
 	fmt.Printf("Pulling %s...\n", c.Image)
 	if err := rt.Pull(ctx, c.Image); err != nil {

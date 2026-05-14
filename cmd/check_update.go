@@ -64,6 +64,7 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	if err := pingRuntime(ctx, runtime); err != nil {
 		return err
 	}
+	applyAuthFile(runtime, stack.AuthFile)
 
 	st, err := state.Load(stack.Project)
 	if err != nil {

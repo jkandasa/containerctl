@@ -43,6 +43,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 	if err := pingRuntime(ctx, rt); err != nil {
 		return err
 	}
+	applyAuthFile(rt, stack.AuthFile)
 
 	nameSet := make(map[string]bool, len(args))
 	for _, a := range args {

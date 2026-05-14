@@ -20,8 +20,11 @@ import (
 )
 
 type Client struct {
-	cli *dockerclient.Client
+	cli      *dockerclient.Client
+	authFile string
 }
+
+func (c *Client) SetAuthFile(path string) { c.authFile = path }
 
 func New(socketPath string) (*Client, error) {
 	opts := []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation()}
@@ -66,7 +69,9 @@ func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, err
 }
 
 func (c *Client) Pull(ctx context.Context, img string) error {
-	rc, err := c.cli.ImagePull(ctx, img, image.PullOptions{})
+	rc, err := c.cli.ImagePull(ctx, img, image.PullOptions{
+		RegistryAuth: registryAuth(c.authFile, img),
+	})
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", img, err)
 	}

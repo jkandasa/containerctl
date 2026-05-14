@@ -47,6 +47,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if err := pingRuntime(ctx, rt); err != nil {
 		return err
 	}
+	applyAuthFile(rt, stack.AuthFile)
 
 	st, err := state.Load(stack.Project)
 	if err != nil {
