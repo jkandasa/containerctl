@@ -3,6 +3,7 @@ package config
 type Stack struct {
 	Project    string      `yaml:"project"`
 	Runtime    string      `yaml:"runtime,omitempty"`
+	Socket     string      `yaml:"socket,omitempty"`
 	DataPath   string      `yaml:"data_path,omitempty"`
 	AuthFile   string      `yaml:"auth_file,omitempty"`
 	Networks   []Network   `yaml:"networks,omitempty"`

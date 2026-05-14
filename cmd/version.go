@@ -35,7 +35,7 @@ func runVersion(cmd *cobra.Command, args []string) error {
 	if rtName == "" {
 		rtName = "docker"
 	}
-	rt, err := newRuntime(rtName)
+	rt, err := newRuntime(rtName, flagSocket)
 	if err == nil {
 		defer rt.Close()
 		if err := rt.Ping(ctx); err == nil {

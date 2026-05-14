@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/jkandasa/containerctl/internal/config"
 	"github.com/jkandasa/containerctl/internal/render"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 	"github.com/jkandasa/containerctl/internal/runtime/docker"
@@ -45,15 +46,31 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagProject, "project", "", "override project name from YAML")
 }
 
-func newRuntime(runtimeName string) (rt.Runtime, error) {
+func newRuntime(runtimeName, socket string) (rt.Runtime, error) {
 	switch runtimeName {
 	case "docker", "":
-		return docker.New(flagSocket)
+		return docker.New(socket)
 	case "podman":
-		return podman.New(flagSocket)
+		return podman.New(socket)
 	default:
 		return nil, fmt.Errorf("unknown runtime %q; use docker or podman", runtimeName)
 	}
+}
+
+// runtimeFrom builds a runtime from a loaded stack, applying flag overrides.
+// Priority: --runtime flag > stack.runtime, --socket flag > stack.socket.
+// If socket is set (from either source), the runtime type is optional —
+// the Docker-compatible API works for Docker, Podman, OrbStack, Colima, etc.
+func runtimeFrom(stack *config.Stack) (rt.Runtime, error) {
+	name := stack.Runtime
+	if flagRuntime != "" {
+		name = flagRuntime
+	}
+	socket := stack.Socket
+	if flagSocket != "" {
+		socket = flagSocket
+	}
+	return newRuntime(name, socket)
 }
 
 func colors() render.Colors {

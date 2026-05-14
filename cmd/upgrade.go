@@ -34,17 +34,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if flagProject != "" {
 		stack.Project = flagProject
 	}
-	runtimeName := stack.Runtime
-	if flagRuntime != "" {
-		runtimeName = flagRuntime
-	}
 
 	c := stack.ContainerByName(name)
 	if c == nil {
 		return fmt.Errorf("container %q not found in %s", name, flagFile)
 	}
 
-	rt, err := newRuntime(runtimeName)
+	rt, err := runtimeFrom(stack)
 	if err != nil {
 		return err
 	}

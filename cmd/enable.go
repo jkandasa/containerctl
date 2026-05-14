@@ -34,17 +34,13 @@ func runEnable(cmd *cobra.Command, args []string) error {
 	if flagProject != "" {
 		stack.Project = flagProject
 	}
-	runtimeName := stack.Runtime
-	if flagRuntime != "" {
-		runtimeName = flagRuntime
-	}
 
 	st, err := state.Load(stack.Project)
 	if err != nil {
 		return err
 	}
 
-	runtime, err := newRuntime(runtimeName)
+	runtime, err := runtimeFrom(stack)
 	if err != nil {
 		return err
 	}

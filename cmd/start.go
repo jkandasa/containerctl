@@ -39,12 +39,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if flagProject != "" {
 		stack.Project = flagProject
 	}
-	runtimeName := stack.Runtime
-	if flagRuntime != "" {
-		runtimeName = flagRuntime
-	}
 
-	runtime, err := newRuntime(runtimeName)
+	runtime, err := runtimeFrom(stack)
 	if err != nil {
 		return err
 	}

@@ -90,6 +90,17 @@ containerctl status    # see running state and drift
 
 Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json`, `--no-color`, `-v`.
 
+### Other runtimes (OrbStack, Colima, Rancher Desktop)
+
+Any Docker API-compatible runtime works. Set the socket path in `stack.yaml` and omit `runtime:`:
+
+```yaml
+project: myapp
+socket: /Users/you/.orbstack/run/docker.sock
+```
+
+The `--socket` flag overrides `stack.yaml`; `--runtime` overrides `stack.runtime`.
+
 ---
 
 ## Update detection
@@ -145,6 +156,7 @@ The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same fil
 ```yaml
 project: string          # required. Namespace; final container name = <project>_<name>.
 runtime: docker|podman   # optional. Default: docker.
+socket: string           # optional. Override socket path. If set, runtime type is optional.
 data_path: string        # optional. Base dir for relative volume and env_file paths.
 auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
 
