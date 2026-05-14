@@ -1,0 +1,5 @@
+containerctl
+dist/
+*.env
+stack.yaml
+data/
