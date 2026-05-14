@@ -38,9 +38,9 @@ jobs:
           echo "date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
           # Extract the section for this version from CHANGELOG.md.
-          # Matches from "## [vX.Y.Z]" (or "[Unreleased]") down to the next "## [".
+          # Matches "## [v1.0.0]" or "## [1.0.0]" down to the next "## [".
           NOTES=$(awk -v tag="${VERSION#v}" '
-            /^## \[/ { if (found) exit; if ($0 ~ "\\[" tag "\\]" || $0 ~ "\\[Unreleased\\]") found=1; next }
+            /^## \[/ { if (found) exit; if ($0 ~ "\\[v?" tag "\\]") found=1; next }
             found { print }
           ' CHANGELOG.md)
           # Write to a file to safely handle multi-line content
