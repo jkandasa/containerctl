@@ -32,7 +32,12 @@ func Load(path string) (*Stack, error) {
 }
 
 func expandEnv(s string) string {
-	return os.ExpandEnv(s)
+	return os.Expand(s, func(key string) string {
+		if key == "$" {
+			return "$"
+		}
+		return os.Getenv(key)
+	})
 }
 
 func applyDefaults(s *Stack) {

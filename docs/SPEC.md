@@ -186,7 +186,16 @@ containers:
 
 ### Variable expansion
 
-`${VAR}` and `$VAR` in any string value are expanded from the process environment at load time. Undefined variables expand to empty string. Implemented via `os.ExpandEnv`.
+`$VAR` and `${VAR}` in any string value are expanded from the host environment at load time. Undefined variables expand to empty string.
+
+`$$` is an escape sequence that produces a literal `$` without triggering expansion. This lets you pass shell-style parameter defaults through to the container unchanged:
+
+```yaml
+command:
+  - "--log-level=$${LOG_LEVEL:-info}"   # container receives: --log-level=${LOG_LEVEL:-info}
+```
+
+Implemented via `os.Expand` with a custom mapping (`$` → `$`) rather than `os.ExpandEnv`.
 
 ---
 

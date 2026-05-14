@@ -193,7 +193,14 @@ containers:
       com.example.key: value
 ```
 
-`${VAR}` and `$VAR` in any string value are expanded from the process environment at load time.
+**Environment variable expansion:** `$VAR` and `${VAR}` in any string value are substituted from the host environment at load time. Undefined variables expand to an empty string.
+
+Use `$$` to pass a literal `$` through to the container without expansion — useful for shell-style defaults you want the container to evaluate:
+
+```yaml
+command:
+  - "--log-level=$${LOG_LEVEL:-info}"   # container receives --log-level=${LOG_LEVEL:-info}
+```
 
 ---
 
