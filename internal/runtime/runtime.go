@@ -101,6 +101,7 @@ type ContainerInfo struct {
 	Labels    map[string]string
 	StartedAt time.Time
 	ExitCode  int
+	Ports     []PortBinding
 }
 
 type NetworkSpec struct {

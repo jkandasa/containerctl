@@ -103,6 +103,7 @@ type StatusRow struct {
 	Name     string `json:"name"`
 	State    string `json:"state"`
 	Image    string `json:"image"`
+	Ports    string `json:"ports,omitempty"`
 	Uptime   string `json:"uptime"`
 	Drift    string `json:"drift"`
 	Note     string `json:"note,omitempty"`
@@ -117,7 +118,7 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 	}
 
 	// compute column widths from data
-	nameW, imageW := len("NAME"), len("IMAGE")
+	nameW, imageW, portsW := len("NAME"), len("IMAGE"), len("PORTS")
 	for _, r := range rows {
 		if len(r.Name) > nameW {
 			nameW = len(r.Name)
@@ -125,15 +126,19 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 		if len(r.Image) > imageW {
 			imageW = len(r.Image)
 		}
+		if len(r.Ports) > portsW {
+			portsW = len(r.Ports)
+		}
 	}
 
 	const stateW, uptimeW, driftW = 14, 10, 5
 	c := colors
 
-	header := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %s",
-		nameW, "NAME", stateW, "STATE", imageW, "IMAGE", uptimeW, "UPTIME", driftW, "DRIFT", "NOTE")
-	fmt.Fprintln(w, header)
-	fmt.Fprintln(w, strings.Repeat("-", len(header)))
+	// column order: NAME  STATE  UPTIME  IMAGE  PORTS  DRIFT  NOTE
+	headerLine := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		nameW, "NAME", stateW, "STATE", uptimeW, "UPTIME", imageW, "IMAGE", portsW, "PORTS", driftW, "DRIFT", "NOTE")
+	fmt.Fprintln(w, headerLine)
+	fmt.Fprintln(w, strings.Repeat("-", len(headerLine)))
 
 	for _, r := range rows {
 		stateColor := ""
@@ -147,11 +152,12 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 		case "stopped", "exited":
 			stateColor = c.Yellow
 		}
-		fmt.Fprintf(w, "%-*s  %s%-*s%s  %-*s  %-*s  %-*s  %s\n",
+		fmt.Fprintf(w, "%-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %s\n",
 			nameW, r.Name,
 			stateColor, stateW, r.State, c.Reset,
-			imageW, r.Image,
 			uptimeW, r.Uptime,
+			imageW, r.Image,
+			portsW, r.Ports,
 			driftW, r.Drift,
 			r.Note)
 	}

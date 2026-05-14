@@ -234,6 +234,21 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 		if ctr.Created > 0 {
 			startedAt = time.Unix(ctr.Created, 0)
 		}
+		var ports []rt.PortBinding
+		for _, p := range ctr.Ports {
+			if p.PublicPort == 0 {
+				continue
+			}
+			pb := rt.PortBinding{
+				HostPort:      fmt.Sprintf("%d", p.PublicPort),
+				ContainerPort: fmt.Sprintf("%d", p.PrivatePort),
+				Protocol:      p.Type,
+			}
+			if p.IP != "" && p.IP != "0.0.0.0" && p.IP != "::" {
+				pb.HostIP = p.IP
+			}
+			ports = append(ports, pb)
+		}
 		out = append(out, rt.ContainerInfo{
 			ID:        ctr.ID,
 			Name:      name,
@@ -241,6 +256,7 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 			State:     ctr.State,
 			Labels:    ctr.Labels,
 			StartedAt: startedAt,
+			Ports:     ports,
 		})
 	}
 	return out, nil

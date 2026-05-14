@@ -75,7 +75,7 @@ containerctl status    # see running state and drift
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...]` | Show state, image, uptime, and drift for all managed containers. |
+| `status [name...]` | Show state, uptime, image, mapped ports, and drift for all managed containers. |
 | `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
 | `restart [name...] \| --all` | Stop, remove, recreate, and start from current config — no pull. |

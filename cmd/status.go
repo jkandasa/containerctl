@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -80,7 +81,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if len(filterSet) > 0 && !filterSet[c.Name] {
 			continue
 		}
-		row := render.StatusRow{Name: c.Name, Image: c.Image, Uptime: "-", Drift: "-"}
+		row := render.StatusRow{Name: c.Name, Image: c.Image, Ports: formatDeclaredPorts(c.Ports), Uptime: "-", Drift: "-"}
 
 		if c.Disabled {
 			row.State = "declared-off"
@@ -113,6 +114,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 		row.State = live.State
 		row.Image = live.Image
+		row.Ports = formatLivePorts(live.Ports)
 		row.Uptime = render.FormatUptime(live.StartedAt)
 
 		expectedHash := config.Hash(&c)
@@ -140,6 +142,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			Name:   name,
 			State:  c.State,
 			Image:  c.Image,
+			Ports:  formatLivePorts(c.Ports),
 			Uptime: render.FormatUptime(c.StartedAt),
 			Drift:  "-",
 			Note:   "not in stack.yaml (orphan)",
@@ -149,3 +152,33 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	render.Status(os.Stdout, rows, render.Format(flagOutput), colors())
 	return nil
 }
+
+// formatLivePorts formats actual mapped ports from a running container.
+func formatLivePorts(ports []rt.PortBinding) string {
+	parts := make([]string, 0, len(ports))
+	for _, p := range ports {
+		var s string
+		if p.HostIP != "" {
+			s = p.HostIP + ":" + p.HostPort + ":" + p.ContainerPort
+		} else {
+			s = p.HostPort + ":" + p.ContainerPort
+		}
+		if p.Protocol != "" && p.Protocol != "tcp" {
+			s += "/" + p.Protocol
+		}
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, " ")
+}
+
+// formatDeclaredPorts formats the port strings from stack.yaml as-is,
+// only stripping the redundant /tcp suffix.
+func formatDeclaredPorts(ports []string) string {
+	parts := make([]string, 0, len(ports))
+	for _, p := range ports {
+		parts = append(parts, strings.TrimSuffix(p, "/tcp"))
+	}
+	return strings.Join(parts, " ")
+}
+
+
