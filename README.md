@@ -110,6 +110,26 @@ Containers with `update_policy: manual` in YAML are never touched.
 
 ---
 
+## Private registries
+
+`containerctl` reads credentials automatically from the standard locations used by `docker login` and `podman login`:
+
+| Runtime | Credential file |
+|---------|----------------|
+| Docker | `$DOCKER_CONFIG/config.json` → `~/.docker/config.json` |
+| Podman | `$REGISTRY_AUTH_FILE` → `$XDG_RUNTIME_DIR/containers/auth.json` → `~/.config/containers/auth.json` → `/etc/containers/auth.json` |
+
+If credentials live somewhere else (CI secret mounts, non-standard paths), point to the file explicitly:
+
+```yaml
+project: myapp
+auth_file: /run/secrets/registry-auth.json
+```
+
+The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
+
+---
+
 ## Three ways to turn something off
 
 | Need | How |
@@ -126,6 +146,7 @@ Containers with `update_policy: manual` in YAML are never touched.
 project: string          # required. Namespace; final container name = <project>_<name>.
 runtime: docker|podman   # optional. Default: docker.
 data_path: string        # optional. Base dir for relative volume and env_file paths.
+auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
 
 networks:
   - name: string         # required.
