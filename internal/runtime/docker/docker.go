@@ -235,19 +235,29 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 			startedAt = time.Unix(ctr.Created, 0)
 		}
 		var ports []rt.PortBinding
+		seenPorts := map[string]bool{}
 		for _, p := range ctr.Ports {
 			if p.PublicPort == 0 {
 				continue
 			}
-			pb := rt.PortBinding{
+			// Normalise IP: treat 0.0.0.0 and :: as "all interfaces" (no IP prefix).
+			ip := p.IP
+			if ip == "0.0.0.0" || ip == "::" {
+				ip = ""
+			}
+			// Docker reports one entry per address family; deduplicate by
+			// hostPort:containerPort/proto so each binding appears only once.
+			key := fmt.Sprintf("%s:%d:%d/%s", ip, p.PublicPort, p.PrivatePort, p.Type)
+			if seenPorts[key] {
+				continue
+			}
+			seenPorts[key] = true
+			ports = append(ports, rt.PortBinding{
+				HostIP:        ip,
 				HostPort:      fmt.Sprintf("%d", p.PublicPort),
 				ContainerPort: fmt.Sprintf("%d", p.PrivatePort),
 				Protocol:      p.Type,
-			}
-			if p.IP != "" && p.IP != "0.0.0.0" && p.IP != "::" {
-				pb.HostIP = p.IP
-			}
-			ports = append(ports, pb)
+			})
 		}
 		out = append(out, rt.ContainerInfo{
 			ID:        ctr.ID,
