@@ -127,6 +127,7 @@ func (c *Client) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (st
 		CapAdd:        spec.CapAdd,
 		CapDrop:       spec.CapDrop,
 		Privileged:    spec.Privileged,
+		SecurityOpt:   spec.SecurityOpt,
 		ReadonlyRootfs: spec.ReadOnly,
 		Tmpfs:         tmpfsMap,
 		Resources: container.Resources{

@@ -245,6 +245,7 @@ func containerSpec(project string, c *config.Container) (rt.ContainerSpec, error
 		CapAdd:        c.CapAdd,
 		CapDrop:       c.CapDrop,
 		Privileged:    c.Privileged,
+		SecurityOpt:   c.SecurityOpt,
 		ReadOnly:      c.ReadOnly,
 		Tmpfs:         c.Tmpfs,
 	}, nil

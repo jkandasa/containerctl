@@ -63,6 +63,7 @@ type ContainerSpec struct {
 	CapAdd        []string
 	CapDrop       []string
 	Privileged    bool
+	SecurityOpt   []string
 	ReadOnly      bool
 	Tmpfs         []string
 }

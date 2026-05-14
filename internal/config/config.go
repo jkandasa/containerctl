@@ -38,6 +38,7 @@ type Container struct {
 	CapAdd      []string          `yaml:"cap_add,omitempty"`
 	CapDrop     []string          `yaml:"cap_drop,omitempty"`
 	Privileged  bool              `yaml:"privileged,omitempty"`
+	SecurityOpt []string          `yaml:"security_opt,omitempty"`
 	ReadOnly    bool              `yaml:"read_only,omitempty"`
 	Tmpfs       []string          `yaml:"tmpfs,omitempty"`
 	DependsOn   []string          `yaml:"depends_on,omitempty"`

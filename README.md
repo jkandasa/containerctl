@@ -187,6 +187,9 @@ containers:
     cap_add: [NET_ADMIN]
     cap_drop: [ALL]
     privileged: bool
+    security_opt:
+      - "seccomp=unconfined"
+      - "apparmor=unconfined"
     read_only: bool
     tmpfs: [/tmp]
     labels:
