@@ -37,14 +37,9 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
-          # Extract the section for this version from CHANGELOG.md.
-          # Matches "## [v1.0.0]" or "## [1.0.0]" down to the next "## [".
-          NOTES=$(awk -v tag="${VERSION#v}" '
-            /^## \[/ { if (found) exit; if ($0 ~ "\\[v?" tag "\\]") found=1; next }
-            found { print }
-          ' CHANGELOG.md)
-          # Write to a file to safely handle multi-line content
-          echo "${NOTES}" > /tmp/release-notes.md
+      - name: Extract release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: bash scripts/extract-changelog.sh "${GITHUB_REF_NAME}" > /tmp/release-notes.md
 
       - name: Build binaries
         run: make cross-build
