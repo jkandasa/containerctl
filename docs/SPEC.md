@@ -186,16 +186,24 @@ containers:
 
 ### Variable expansion
 
-`$VAR` and `${VAR}` in any string value are expanded from the host environment at load time. Undefined variables expand to empty string.
+Applied to every string value at load time via `os.Expand` with a custom mapping:
 
-`$$` is an escape sequence that produces a literal `$` without triggering expansion. This lets you pass shell-style parameter defaults through to the container unchanged:
+| Syntax | Behaviour |
+|--------|-----------|
+| `$VAR` / `${VAR}` | Value of `VAR`; empty string if unset |
+| `${VAR:-default}` | Value of `VAR` if set and non-empty, otherwise `default` |
+| `$$` | Literal `$` — skips expansion entirely |
 
 ```yaml
+env:
+  MODE: "${APP_MODE:-production}"       # "production" if APP_MODE unset
+
 command:
-  - "--log-level=$${LOG_LEVEL:-info}"   # container receives: --log-level=${LOG_LEVEL:-info}
+  - "--log-level=${LOG_LEVEL:-info}"    # containerctl resolves default at load time
+  - "--raw=$${LOG_LEVEL:-info}"         # container receives ${LOG_LEVEL:-info} literally
 ```
 
-Implemented via `os.Expand` with a custom mapping (`$` → `$`) rather than `os.ExpandEnv`.
+The `$$` escape is useful when the container's entrypoint is a shell and should evaluate the default itself rather than having containerctl resolve it.
 
 ---
 

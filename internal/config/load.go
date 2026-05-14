@@ -36,6 +36,13 @@ func expandEnv(s string) string {
 		if key == "$" {
 			return "$"
 		}
+		// ${VAR:-default} — use default if VAR is unset or empty
+		if idx := strings.Index(key, ":-"); idx >= 0 {
+			if val := os.Getenv(key[:idx]); val != "" {
+				return val
+			}
+			return key[idx+2:]
+		}
 		return os.Getenv(key)
 	})
 }

@@ -193,13 +193,21 @@ containers:
       com.example.key: value
 ```
 
-**Environment variable expansion:** `$VAR` and `${VAR}` in any string value are substituted from the host environment at load time. Undefined variables expand to an empty string.
+**Environment variable expansion** is applied to every string value at load time:
 
-Use `$$` to pass a literal `$` through to the container without expansion — useful for shell-style defaults you want the container to evaluate:
+| Syntax | Behaviour |
+|--------|-----------|
+| `$VAR` / `${VAR}` | Value of `VAR`; empty string if unset |
+| `${VAR:-default}` | Value of `VAR` if set and non-empty, otherwise `default` |
+| `$$` | Literal `$` — no expansion, passed through to the container as-is |
 
 ```yaml
+env:
+  MODE: "${APP_MODE:-production}"       # uses "production" if APP_MODE is unset
+
 command:
-  - "--log-level=$${LOG_LEVEL:-info}"   # container receives --log-level=${LOG_LEVEL:-info}
+  - "--log-level=${LOG_LEVEL:-info}"    # containerctl resolves the default at load time
+  - "--raw=$${LOG_LEVEL:-info}"         # container receives ${LOG_LEVEL:-info} literally
 ```
 
 ---
