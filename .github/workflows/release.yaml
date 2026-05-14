@@ -39,7 +39,13 @@ jobs:
 
       - name: Extract release notes
         if: startsWith(github.ref, 'refs/tags/')
-        run: bash scripts/extract-changelog.sh "${GITHUB_REF_NAME}" > /tmp/release-notes.md
+        id: notes
+        run: |
+          {
+            echo 'body<<RELEASE_BODY_EOF'
+            bash scripts/extract-changelog.sh "${GITHUB_REF_NAME}"
+            echo 'RELEASE_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build binaries
         run: make cross-build
@@ -52,7 +58,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.meta.outputs.version }}
-          body_path: /tmp/release-notes.md
+          body: ${{ steps.notes.outputs.body }}
           files: dist/*
 
       - name: Release (devel rolling)
