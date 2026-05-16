@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 
 	"github.com/jkandasa/containerctl/internal/registry"
@@ -391,7 +392,7 @@ func (c *Client) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.Re
 	if !opts.Since.IsZero() {
 		since = opts.Since.Format(time.RFC3339)
 	}
-	return c.cli.ContainerLogs(ctx, id, container.LogsOptions{
+	rc, err := c.cli.ContainerLogs(ctx, id, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     opts.Follow,
@@ -399,6 +400,24 @@ func (c *Client) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.Re
 		Tail:       tail,
 		Since:      since,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Containers without a TTY use a multiplexed stream with 8-byte frame
+	// headers. Demux through a pipe so the caller gets a clean byte stream.
+	// TTY containers use a raw stream that passes through unchanged.
+	info, inspectErr := c.cli.ContainerInspect(ctx, id)
+	if inspectErr == nil && info.Config != nil && info.Config.Tty {
+		return rc, nil
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		_, copyErr := stdcopy.StdCopy(pw, pw, rc)
+		rc.Close()
+		pw.CloseWithError(copyErr)
+	}()
+	return pr, nil
 }
 
 func (c *Client) CreateNetwork(ctx context.Context, spec rt.NetworkSpec) (string, error) {

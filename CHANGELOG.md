@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `status` now runs all per-container API calls (image meta, inspect, stats) in parallel, reducing wall-clock time from ~1s×N to ~1-2s regardless of container count.
 - `status` no longer shows CPU/MEM columns by default. Use `--stats` to enable live usage collection and display. This keeps the default output fast and avoids the Docker stats collection delay for every run.
 
+### Fixed
+- `logs` no longer shows garbage characters (`\xef\xbf\xbd` / `?`) at the start of each line. Docker multiplexes stdout and stderr with 8-byte binary frame headers when the container has no TTY; the stream is now demultiplexed transparently before output. TTY containers are unaffected.
+
 ---
 
 ## [v1.4.0] - 2026-05-16
