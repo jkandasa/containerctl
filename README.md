@@ -123,12 +123,17 @@ Containers with `update_policy: manual` in YAML are never touched.
 
 ## Private registries
 
-`containerctl` reads credentials automatically from the standard locations used by `docker login` and `podman login`:
+`containerctl` merges credentials from all auto-detected locations plus any explicit `auth_file`. Auto-detected files are checked in this order (first-wins among them); `auth_file` from `stack.yaml` is overlaid last and takes highest precedence on any conflict.
 
-| Runtime | Credential file |
-|---------|----------------|
-| Docker | `$DOCKER_CONFIG/config.json` → `~/.docker/config.json` |
-| Podman | `$REGISTRY_AUTH_FILE` → `$XDG_RUNTIME_DIR/containers/auth.json` → `~/.config/containers/auth.json` → `/etc/containers/auth.json` |
+| Source | Path |
+|--------|------|
+| Podman env | `$REGISTRY_AUTH_FILE` |
+| Docker env | `$DOCKER_CONFIG/config.json` |
+| Docker default | `~/.docker/config.json` |
+| Podman rootless | `$XDG_RUNTIME_DIR/containers/auth.json` |
+| Podman rootless fallback | `~/.config/containers/auth.json` |
+| Podman root | `/etc/containers/auth.json` |
+| **stack.yaml** (highest) | value of `auth_file:` |
 
 If credentials live somewhere else (CI secret mounts, non-standard paths), point to the file explicitly:
 
@@ -137,7 +142,7 @@ project: myapp
 auth_file: /run/secrets/registry-auth.json
 ```
 
-The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
+`auth_file` overrides auto-detected credentials for the same registry, but credentials from auto-detected files for other registries remain available. The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
 
 ---
 

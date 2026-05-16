@@ -150,17 +150,24 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 // formatLivePorts formats actual mapped ports from a running container.
+// Published:     [ip:]host:container[/proto]
+// Exposed-only:  container/proto  (internal only, matches docker ps style)
 func formatLivePorts(ports []rt.PortBinding) string {
 	parts := make([]string, 0, len(ports))
 	for _, p := range ports {
 		var s string
-		if p.HostIP != "" {
+		if p.HostPort == "" {
+			s = p.ContainerPort + "/" + p.Protocol
+		} else if p.HostIP != "" {
 			s = p.HostIP + ":" + p.HostPort + ":" + p.ContainerPort
+			if p.Protocol != "tcp" {
+				s += "/" + p.Protocol
+			}
 		} else {
 			s = p.HostPort + ":" + p.ContainerPort
-		}
-		if p.Protocol != "" && p.Protocol != "tcp" {
-			s += "/" + p.Protocol
+			if p.Protocol != "tcp" {
+				s += "/" + p.Protocol
+			}
 		}
 		parts = append(parts, s)
 	}

@@ -252,9 +252,26 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 				continue
 			}
 			seenPorts[key] = true
+			// Track container port as published so we don't repeat it as exposed-only.
+			seenPorts[fmt.Sprintf("c:%d/%s", p.PrivatePort, p.Type)] = true
 			ports = append(ports, rt.PortBinding{
 				HostIP:        ip,
 				HostPort:      fmt.Sprintf("%d", p.PublicPort),
+				ContainerPort: fmt.Sprintf("%d", p.PrivatePort),
+				Protocol:      p.Type,
+			})
+		}
+		// Exposed-only ports (internal only, no host binding).
+		for _, p := range ctr.Ports {
+			if p.PublicPort != 0 {
+				continue
+			}
+			key := fmt.Sprintf("c:%d/%s", p.PrivatePort, p.Type)
+			if seenPorts[key] {
+				continue
+			}
+			seenPorts[key] = true
+			ports = append(ports, rt.PortBinding{
 				ContainerPort: fmt.Sprintf("%d", p.PrivatePort),
 				Protocol:      p.Type,
 			})

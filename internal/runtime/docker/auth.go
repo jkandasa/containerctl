@@ -25,14 +25,12 @@ type authEntry struct {
 }
 
 // registryAuth returns a base64-encoded JSON AuthConfig for the given image.
-// It searches credential files in this order:
-//  1. authFile argument (explicit path from stack.yaml auth_file)
-//  2. $REGISTRY_AUTH_FILE (Podman env override)
-//  3. $DOCKER_CONFIG/config.json (Docker env override)
-//  4. ~/.docker/config.json (Docker default)
-//  5. $XDG_RUNTIME_DIR/containers/auth.json (Podman rootless)
-//  6. ~/.config/containers/auth.json (Podman rootless fallback)
-//  7. /etc/containers/auth.json (Podman root)
+// Credentials are merged from all auto-detected files plus the explicit auth_file:
+//   - Auto-detected files (first-wins among them):
+//     $REGISTRY_AUTH_FILE, $DOCKER_CONFIG/config.json, ~/.docker/config.json,
+//     $XDG_RUNTIME_DIR/containers/auth.json, ~/.config/containers/auth.json,
+//     /etc/containers/auth.json
+//   - auth_file from stack.yaml overlaid last (highest precedence, overrides auto-detected)
 //
 // Returns "" if no credentials are found (public image or not logged in).
 func registryAuth(authFile, img string) string {
@@ -46,27 +44,53 @@ func registryAuth(authFile, img string) string {
 		canonicalAddr = "https://index.docker.io/v1/"
 	}
 
-	candidates := credFileCandidates()
-	if authFile != "" {
-		candidates = append([]string{authFile}, candidates...)
+	merged := &dockerConfig{
+		Auths:       make(map[string]authEntry),
+		CredHelpers: make(map[string]string),
 	}
 
-	for _, path := range candidates {
-		cfg, err := loadAuthFile(path)
-		if err != nil {
-			continue
+	// Merge all auto-detected files; first-wins among them.
+	for _, path := range credFileCandidates() {
+		if cfg, err := loadAuthFile(path); err == nil {
+			mergeConfig(merged, cfg, false)
 		}
-		authCfg, err := resolveCredentials(cfg, serverAddr, canonicalAddr)
-		if err != nil || (authCfg.Username == "" && authCfg.Password == "") {
-			continue
-		}
-		encoded, err := json.Marshal(authCfg)
-		if err != nil {
-			continue
-		}
-		return base64.URLEncoding.EncodeToString(encoded)
 	}
-	return ""
+
+	// auth_file from stack.yaml overrides anything auto-detected.
+	if authFile != "" {
+		if cfg, err := loadAuthFile(authFile); err == nil {
+			mergeConfig(merged, cfg, true)
+		}
+	}
+
+	authCfg, err := resolveCredentials(merged, serverAddr, canonicalAddr)
+	if err != nil || (authCfg.Username == "" && authCfg.Password == "") {
+		return ""
+	}
+	encoded, err := json.Marshal(authCfg)
+	if err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(encoded)
+}
+
+// mergeConfig copies entries from src into dst.
+// If override is false, existing dst entries are kept (first-wins).
+// If override is true, src entries replace dst entries (last-wins / higher precedence).
+func mergeConfig(dst, src *dockerConfig, override bool) {
+	for k, v := range src.Auths {
+		if override || dst.Auths[k].Auth == "" {
+			dst.Auths[k] = v
+		}
+	}
+	for k, v := range src.CredHelpers {
+		if override || dst.CredHelpers[k] == "" {
+			dst.CredHelpers[k] = v
+		}
+	}
+	if src.CredsStore != "" && (override || dst.CredsStore == "") {
+		dst.CredsStore = src.CredsStore
+	}
 }
 
 func credFileCandidates() []string {
