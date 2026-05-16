@@ -8,15 +8,26 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// httpClient is shared across registry calls with a conservative timeout so
+// that a slow or unresponsive registry never hangs the caller indefinitely.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+// Credentials holds optional username/password for private registry access.
+type Credentials struct {
+	Username string
+	Password string
+}
 
 // RemoteDigest returns the content digest for image as reported by the registry.
 // It handles Docker Hub token auth and generic Bearer auth (quay.io, ghcr.io, etc.)
 // without requiring daemon-specific API support.
-func RemoteDigest(ctx context.Context, image string) (string, error) {
+// Pass nil creds for public images.
+func RemoteDigest(ctx context.Context, image string, creds *Credentials) (string, error) {
 	reg, repo, tag := parseRef(image)
-	client := &http.Client{}
-	return fetchDigest(ctx, client, reg, repo, tag, "")
+	return fetchDigest(ctx, httpClient, reg, repo, tag, "", creds)
 }
 
 // parseRef splits an image reference into registry host, repository, and tag.
@@ -58,7 +69,7 @@ func parseRef(image string) (reg, repo, tag string) {
 	return "registry-1.docker.io", image, tag
 }
 
-func fetchDigest(ctx context.Context, client *http.Client, reg, repo, tag, token string) (string, error) {
+func fetchDigest(ctx context.Context, client *http.Client, reg, repo, tag, token string, creds *Credentials) (string, error) {
 	url := fmt.Sprintf("https://%s/v2/%s/manifests/%s", reg, repo, tag)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -86,11 +97,11 @@ func fetchDigest(ctx context.Context, client *http.Client, reg, repo, tag, token
 		if wwwAuth == "" {
 			return "", fmt.Errorf("unauthorized and no WWW-Authenticate header")
 		}
-		tok, err := bearerToken(ctx, client, wwwAuth, repo)
+		tok, err := bearerToken(ctx, client, wwwAuth, repo, creds)
 		if err != nil {
 			return "", fmt.Errorf("auth: %w", err)
 		}
-		return fetchDigest(ctx, client, reg, repo, tag, tok)
+		return fetchDigest(ctx, client, reg, repo, tag, tok, creds)
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return "", fmt.Errorf("image not found on registry (check image name and tag)")
@@ -106,7 +117,7 @@ func fetchDigest(ctx context.Context, client *http.Client, reg, repo, tag, token
 	return digest, nil
 }
 
-func bearerToken(ctx context.Context, client *http.Client, wwwAuth, repo string) (string, error) {
+func bearerToken(ctx context.Context, client *http.Client, wwwAuth, repo string, creds *Credentials) (string, error) {
 	// WWW-Authenticate: Bearer realm="https://auth.example.com/token",service="...",scope="..."
 	params := parseBearer(wwwAuth)
 	realm := params["realm"]
@@ -124,6 +135,9 @@ func bearerToken(ctx context.Context, client *http.Client, wwwAuth, repo string)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if creds != nil && creds.Username != "" {
+		req.SetBasicAuth(creds.Username, creds.Password)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -12,7 +12,6 @@ import (
 
 	"github.com/jkandasa/containerctl/internal/config"
 	"github.com/jkandasa/containerctl/internal/reconcile"
-	"github.com/jkandasa/containerctl/internal/registry"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 	"github.com/jkandasa/containerctl/internal/state"
 )
@@ -206,6 +205,9 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 
 func checkImage(ctx context.Context, runtime rt.Runtime, c config.Container) imageUpdateStatus {
 	s := imageUpdateStatus{name: c.Name, image: c.Image}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
 
 	if c.UpdatePolicy == "manual" {
 		s.status = "manual"
@@ -240,8 +242,8 @@ func checkImage(ctx context.Context, runtime rt.Runtime, c config.Container) ima
 		return s
 	}
 
-	// semver tag: pure registry comparison — identical result for any runtime
-	updates, err := registry.CheckTagUpdates(ctx, c.Image, 3)
+	// semver tag: query via runtime so credentials are applied automatically
+	updates, err := runtime.CheckTagUpdates(ctx, c.Image, 3)
 	if err != nil {
 		s.status = "error"
 		s.note = err.Error()

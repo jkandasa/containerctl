@@ -175,6 +175,8 @@ auth_file: /run/secrets/registry-auth.json
 
 `auth_file` overrides auto-detected credentials for the same registry, but credentials from auto-detected files for other registries remain available. The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
 
+Credentials are used by `pull`, `apply`, `upgrade`, `check-update`, and remote digest checks — all registry operations go through the same credential resolution.
+
 ---
 
 ## Three ways to turn something off

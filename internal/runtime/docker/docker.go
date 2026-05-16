@@ -67,7 +67,21 @@ func (c *Client) LocalImageMeta(ctx context.Context, img string) (rt.ImageMeta, 
 }
 
 func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, error) {
-	return registry.RemoteDigest(ctx, img)
+	u, p := credentialsFor(c.authFile, img)
+	var creds *registry.Credentials
+	if u != "" {
+		creds = &registry.Credentials{Username: u, Password: p}
+	}
+	return registry.RemoteDigest(ctx, img, creds)
+}
+
+func (c *Client) CheckTagUpdates(ctx context.Context, img string, max int) (*registry.TagUpdates, error) {
+	u, p := credentialsFor(c.authFile, img)
+	var creds *registry.Credentials
+	if u != "" {
+		creds = &registry.Credentials{Username: u, Password: p}
+	}
+	return registry.CheckTagUpdates(ctx, img, max, creds)
 }
 
 func (c *Client) Pull(ctx context.Context, img string) error {

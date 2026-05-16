@@ -19,11 +19,11 @@ type TagUpdates struct {
 // CheckTagUpdates queries the registry for tags newer than the one in image.
 // max caps the number of entries in SameMajor (NewMajors returns one per major).
 // Returns an empty TagUpdates (not nil) when the current tag is not a semver.
-func CheckTagUpdates(ctx context.Context, image string, max int) (*TagUpdates, error) {
+func CheckTagUpdates(ctx context.Context, image string, max int, creds *Credentials) (*TagUpdates, error) {
 	reg, repo, currentTag := parseRef(image)
-	client := &http.Client{}
+	client := httpClient
 
-	tags, err := listTagsWithAuth(ctx, client, reg, repo)
+	tags, err := listTagsWithAuth(ctx, client, reg, repo, creds)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func CheckTagUpdates(ctx context.Context, image string, max int) (*TagUpdates, e
 	return &TagUpdates{SameMajor: sameMajor, NewMajors: newMajors}, nil
 }
 
-func listTagsWithAuth(ctx context.Context, client *http.Client, reg, repo string) ([]string, error) {
+func listTagsWithAuth(ctx context.Context, client *http.Client, reg, repo string, creds *Credentials) ([]string, error) {
 	tags, err := listTags(ctx, client, reg, repo, "")
 	if err == nil {
 		return tags, nil
@@ -94,7 +94,7 @@ func listTagsWithAuth(ctx context.Context, client *http.Client, reg, repo string
 	}
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		tok, terr := bearerToken(ctx, client, resp.Header.Get("Www-Authenticate"), repo)
+		tok, terr := bearerToken(ctx, client, resp.Header.Get("Www-Authenticate"), repo, creds)
 		if terr == nil {
 			return listTags(ctx, client, reg, repo, tok)
 		}

@@ -34,9 +34,29 @@ type authEntry struct {
 //
 // Returns "" if no credentials are found (public image or not logged in).
 func registryAuth(authFile, img string) string {
-	ref, err := reference.ParseNormalizedNamed(img)
+	authCfg := resolveAuth(authFile, img)
+	if authCfg.Username == "" && authCfg.Password == "" {
+		return ""
+	}
+	encoded, err := json.Marshal(authCfg)
 	if err != nil {
 		return ""
+	}
+	return base64.URLEncoding.EncodeToString(encoded)
+}
+
+// credentialsFor returns username and password for the given image by searching
+// the same credential sources as registryAuth.
+func credentialsFor(authFile, img string) (username, password string) {
+	authCfg := resolveAuth(authFile, img)
+	return authCfg.Username, authCfg.Password
+}
+
+// resolveAuth is the shared credential resolution used by registryAuth and credentialsFor.
+func resolveAuth(authFile, img string) registrytypes.AuthConfig {
+	ref, err := reference.ParseNormalizedNamed(img)
+	if err != nil {
+		return registrytypes.AuthConfig{}
 	}
 	serverAddr := reference.Domain(ref)
 	canonicalAddr := serverAddr
@@ -64,14 +84,10 @@ func registryAuth(authFile, img string) string {
 	}
 
 	authCfg, err := resolveCredentials(merged, serverAddr, canonicalAddr)
-	if err != nil || (authCfg.Username == "" && authCfg.Password == "") {
-		return ""
-	}
-	encoded, err := json.Marshal(authCfg)
 	if err != nil {
-		return ""
+		return registrytypes.AuthConfig{}
 	}
-	return base64.URLEncoding.EncodeToString(encoded)
+	return authCfg
 }
 
 // mergeConfig copies entries from src into dst.

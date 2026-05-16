@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/jkandasa/containerctl/internal/registry"
 )
 
 const (
@@ -37,6 +39,9 @@ type Runtime interface {
 	LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
 	// RemoteImageDigest queries the registry for the current digest of image.
 	RemoteImageDigest(ctx context.Context, image string) (string, error)
+	// CheckTagUpdates queries the registry for semver tags newer than the one in image.
+	// Credentials are resolved from the runtime's configured auth sources.
+	CheckTagUpdates(ctx context.Context, image string, max int) (*registry.TagUpdates, error)
 
 	Name() string
 	Ping(ctx context.Context) error
