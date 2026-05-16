@@ -11,11 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v1.4.1] - 2026-05-16
+
+### Changed
+- `status` now runs all per-container API calls (image meta, inspect, stats) in parallel, reducing wall-clock time from ~1s×N to ~1-2s regardless of container count.
+- `status` no longer shows CPU/MEM columns by default. Use `--stats` to enable live usage collection and display. This keeps the default output fast and avoids the Docker stats collection delay for every run.
+
+---
+
 ## [v1.4.0] - 2026-05-16
 
 ### Added
 - `status` now shows a **PORTS** column with the actual mapped ports (including host IP when bound to a specific address). UPTIME is shown next to STATE for better readability.
 - `status` now shows a **RESTARTS** column with the restart count and time since last restart (e.g. `3 (2h 10m)`).
+- `status` now shows **CPU** and **MEM** columns with live usage (CPU % across all cores; working-set memory excluding file cache). Non-running containers show `-`. JSON/YAML output includes `cpu_percent`, `memory_used`, and `memory_used_bytes`.
 - `socket` field in `stack.yaml` — set the runtime socket path without using `--socket` flag. Enables Docker API-compatible runtimes (OrbStack, Colima, Rancher Desktop) without any runtime-specific code.
 - `-o yaml` output format for `status` — emits structured YAML with typed fields: `container_id`, `container_name`, `started_at` and `last_restart` as RFC3339 timestamps, `restart_count` as integer, `ports` as a list of objects, `image_digest`, `image_size`, `resources` (cpus/memory/pids limits), and `exit_code` when applicable.
 - `-o json` output for `status` now uses the same rich typed model as YAML instead of display strings.

@@ -132,10 +132,13 @@ type StatusEntry struct {
 	StartedAt     *time.Time      `json:"started_at,omitempty"    yaml:"started_at,omitempty"`
 	RestartCount  int             `json:"restart_count"           yaml:"restart_count"`
 	LastRestart   *time.Time      `json:"last_restart,omitempty"  yaml:"last_restart,omitempty"`
-	Sync          string          `json:"sync"                    yaml:"sync"`
-	ExitCode      *int            `json:"exit_code,omitempty"     yaml:"exit_code,omitempty"`
-	Resources     *ResourceLimits `json:"resources,omitempty"     yaml:"resources,omitempty"`
-	Note          string          `json:"note,omitempty"          yaml:"note,omitempty"`
+	Sync             string          `json:"sync"                       yaml:"sync"`
+	ExitCode         *int            `json:"exit_code,omitempty"        yaml:"exit_code,omitempty"`
+	Resources        *ResourceLimits `json:"resources,omitempty"        yaml:"resources,omitempty"`
+	CPUPercent       *float64        `json:"cpu_percent,omitempty"      yaml:"cpu_percent,omitempty"`
+	MemoryUsedBytes  int64           `json:"memory_used_bytes,omitempty" yaml:"memory_used_bytes,omitempty"`
+	MemoryUsed       string          `json:"memory_used,omitempty"      yaml:"memory_used,omitempty"`
+	Note             string          `json:"note,omitempty"             yaml:"note,omitempty"`
 }
 
 func Status(w io.Writer, entries []StatusEntry, format Format, colors Colors) {
@@ -171,13 +174,28 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 		}
 	}
 
-	const stateW, uptimeW, syncW = 14, 10, 5
+	// only show CPU/MEM columns when at least one entry has stats data
+	hasStats := false
+	for _, e := range entries {
+		if e.CPUPercent != nil {
+			hasStats = true
+			break
+		}
+	}
+
+	const stateW, uptimeW, syncW, cpuW, memW = 14, 10, 5, 7, 10
 	c := colors
 
-	// column order: NAME  IMAGE  STATE  PORTS  UPTIME  RESTARTS  SYNC  NOTE
-	headerLine := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
-		nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
-		uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
+	var headerLine string
+	if hasStats {
+		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
+			uptimeW, "UPTIME", restartsW, "RESTARTS", cpuW, "CPU", memW, "MEM", syncW, "SYNC", "NOTE")
+	} else {
+		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
+			uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
+	}
 	fmt.Fprintln(w, headerLine)
 	fmt.Fprintln(w, strings.Repeat("-", len(headerLine)))
 
@@ -203,15 +221,37 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 			uptime = FormatUptime(*e.StartedAt)
 		}
 
-		fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
-			nameW, e.Name,
-			imageW, e.Image,
-			stateColor, stateW, e.State, c.Reset,
-			portsW, textPorts(e.Ports),
-			uptimeW, uptime,
-			restartsW, textRestarts(e.RestartCount, e.LastRestart),
-			syncColor, syncW, e.Sync, c.Reset,
-			e.Note)
+		if hasStats {
+			cpu := "-"
+			if e.CPUPercent != nil {
+				cpu = fmt.Sprintf("%.2f%%", *e.CPUPercent)
+			}
+			mem := "-"
+			if e.MemoryUsed != "" {
+				mem = e.MemoryUsed
+			}
+			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
+				nameW, e.Name,
+				imageW, e.Image,
+				stateColor, stateW, e.State, c.Reset,
+				portsW, textPorts(e.Ports),
+				uptimeW, uptime,
+				restartsW, textRestarts(e.RestartCount, e.LastRestart),
+				cpuW, cpu,
+				memW, mem,
+				syncColor, syncW, e.Sync, c.Reset,
+				e.Note)
+		} else {
+			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
+				nameW, e.Name,
+				imageW, e.Image,
+				stateColor, stateW, e.State, c.Reset,
+				portsW, textPorts(e.Ports),
+				uptimeW, uptime,
+				restartsW, textRestarts(e.RestartCount, e.LastRestart),
+				syncColor, syncW, e.Sync, c.Reset,
+				e.Note)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -73,6 +74,64 @@ func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, err
 		creds = &registry.Credentials{Username: u, Password: p}
 	}
 	return registry.RemoteDigest(ctx, img, creds)
+}
+
+func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsage, error) {
+	resp, err := c.cli.ContainerStats(ctx, id, false)
+	if err != nil {
+		return rt.ContainerUsage{}, err
+	}
+	defer resp.Body.Close()
+
+	var s struct {
+		CPUStats struct {
+			CPUUsage struct {
+				TotalUsage  uint64   `json:"total_usage"`
+				PercpuUsage []uint64 `json:"percpu_usage"`
+			} `json:"cpu_usage"`
+			SystemUsage uint64 `json:"system_cpu_usage"`
+			OnlineCPUs  uint32 `json:"online_cpus"`
+		} `json:"cpu_stats"`
+		PreCPUStats struct {
+			CPUUsage    struct{ TotalUsage uint64 `json:"total_usage"` } `json:"cpu_usage"`
+			SystemUsage uint64 `json:"system_cpu_usage"`
+		} `json:"precpu_stats"`
+		MemoryStats struct {
+			Usage uint64            `json:"usage"`
+			Stats map[string]uint64 `json:"stats"`
+		} `json:"memory_stats"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return rt.ContainerUsage{}, err
+	}
+
+	// CPU percentage across all cores
+	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
+	sysDelta := float64(s.CPUStats.SystemUsage) - float64(s.PreCPUStats.SystemUsage)
+	numCPUs := float64(s.CPUStats.OnlineCPUs)
+	if numCPUs == 0 {
+		numCPUs = float64(len(s.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if numCPUs == 0 {
+		numCPUs = 1
+	}
+	cpuPct := 0.0
+	if sysDelta > 0 && cpuDelta > 0 {
+		cpuPct = (cpuDelta / sysDelta) * numCPUs * 100.0
+	}
+
+	// Working-set memory: subtract inactive file cache (cgroups v2) or cache (v1)
+	memUsed := int64(s.MemoryStats.Usage)
+	if v, ok := s.MemoryStats.Stats["inactive_file"]; ok {
+		memUsed -= int64(v)
+	} else if v, ok := s.MemoryStats.Stats["cache"]; ok {
+		memUsed -= int64(v)
+	}
+	if memUsed < 0 {
+		memUsed = 0
+	}
+
+	return rt.ContainerUsage{CPUPercent: cpuPct, MemoryUsed: memUsed}, nil
 }
 
 func (c *Client) CheckTagUpdates(ctx context.Context, img string, max int) (*registry.TagUpdates, error) {

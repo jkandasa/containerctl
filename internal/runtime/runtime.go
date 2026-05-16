@@ -42,6 +42,8 @@ type Runtime interface {
 	// CheckTagUpdates queries the registry for semver tags newer than the one in image.
 	// Credentials are resolved from the runtime's configured auth sources.
 	CheckTagUpdates(ctx context.Context, image string, max int) (*registry.TagUpdates, error)
+	// ContainerStats returns a single live usage snapshot for the container.
+	ContainerStats(ctx context.Context, id string) (ContainerUsage, error)
 
 	Name() string
 	Ping(ctx context.Context) error
@@ -121,6 +123,11 @@ type ContainerResources struct {
 type ImageMeta struct {
 	Digest string
 	Size   int64 // bytes; 0 if unavailable
+}
+
+type ContainerUsage struct {
+	CPUPercent  float64
+	MemoryUsed  int64 // bytes; working-set (cache excluded)
 }
 
 type NetworkSpec struct {

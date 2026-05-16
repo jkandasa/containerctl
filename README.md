@@ -75,7 +75,7 @@ containerctl status    # see running state and drift
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...]` | Show image, state, ports, uptime, restart count, and sync status. Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
+| `status [name...] [--stats]` | Show image, state, ports, uptime, restarts, and sync status. Add `--stats` to also show live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
 | `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
 | `restart [name...] \| --all` | Stop, remove, recreate, and start from current config — no pull. |
@@ -117,7 +117,16 @@ Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podma
     memory: 2.0 GiB
 ```
 
-Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, etc.).
+```yaml
+# containerctl status --stats -o yaml
+- name: postgres
+  ...
+  cpu_percent: 0.42
+  memory_used: 38.2 MiB
+  memory_used_bytes: 40042496
+```
+
+Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, etc.). `cpu_percent`, `memory_used`, and `memory_used_bytes` only appear when `--stats` is passed.
 
 ---
 

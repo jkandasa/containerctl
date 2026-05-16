@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,14 +16,26 @@ import (
 	"github.com/jkandasa/containerctl/internal/state"
 )
 
-var statusCmd = &cobra.Command{
-	Use:   "status [name...]",
-	Short: "Show state and sync status of all managed containers",
-	RunE:  runStatus,
-}
+var (
+	statusCmd = &cobra.Command{
+		Use:   "status [name...]",
+		Short: "Show state and sync status of all managed containers",
+		RunE:  runStatus,
+	}
+	flagStats bool
+)
 
 func init() {
 	rootCmd.AddCommand(statusCmd)
+	statusCmd.Flags().BoolVar(&flagStats, "stats", false, "show live CPU and memory usage (adds ~1-2s)")
+}
+
+// liveData holds the pre-fetched results for a single live container.
+type liveData struct {
+	meta     rt.ImageMeta
+	usage    rt.ContainerUsage
+	hasUsage bool
+	detail   *rt.ContainerInfo
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -67,6 +81,36 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			liveByName[name] = c
 		}
 	}
+
+	// Pre-fetch per-container data for all live containers in parallel.
+	dataByID := make(map[string]*liveData, len(live))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, lc := range live {
+		wg.Add(1)
+		go func(lc rt.ContainerInfo) {
+			defer wg.Done()
+			d := &liveData{}
+			if meta, err := runtime.LocalImageMeta(ctx, lc.Image); err == nil {
+				d.meta = meta
+			}
+			if flagStats && lc.State == "running" {
+				sCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				if usage, err := runtime.ContainerStats(sCtx, lc.ID); err == nil {
+					d.usage = usage
+					d.hasUsage = true
+				}
+				cancel()
+			}
+			if detail, err := runtime.InspectContainer(ctx, lc.ID); err == nil {
+				d.detail = detail
+			}
+			mu.Lock()
+			dataByID[lc.ID] = d
+			mu.Unlock()
+		}(lc)
+	}
+	wg.Wait()
 
 	filterSet := make(map[string]bool, len(args))
 	for _, a := range args {
@@ -127,33 +171,40 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			entry.StartedAt = &lc.StartedAt
 		}
 
-		// Image digest and size.
-		if meta, err := runtime.LocalImageMeta(ctx, lc.Image); err == nil && meta.Digest != "" {
-			entry.ImageDigest = meta.Digest
-			if meta.Size > 0 {
-				entry.ImageSize = formatImageSize(meta.Size)
-			}
-		}
-
-		// Inspect for restart count, last restart, exit code, and resource limits.
-		if detail, err := runtime.InspectContainer(ctx, lc.ID); err == nil && detail != nil {
-			entry.RestartCount = detail.RestartCount
-			if !detail.LastRestart.IsZero() {
-				entry.LastRestart = &detail.LastRestart
-			}
-			if detail.ExitCode != 0 || lc.State == "exited" {
-				ec := detail.ExitCode
-				entry.ExitCode = &ec
-			}
-			if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
-				rl := &render.ResourceLimits{Pids: r.PidsLimit}
-				if r.NanoCPUs > 0 {
-					rl.CPUs = formatCPUs(r.NanoCPUs)
+		if d := dataByID[lc.ID]; d != nil {
+			if d.meta.Digest != "" {
+				entry.ImageDigest = d.meta.Digest
+				if d.meta.Size > 0 {
+					entry.ImageSize = formatImageSize(d.meta.Size)
 				}
-				if r.MemoryBytes > 0 {
-					rl.Memory = formatImageSize(r.MemoryBytes)
+			}
+			if d.hasUsage {
+				pct := d.usage.CPUPercent
+				entry.CPUPercent = &pct
+				if d.usage.MemoryUsed > 0 {
+					entry.MemoryUsedBytes = d.usage.MemoryUsed
+					entry.MemoryUsed = formatImageSize(d.usage.MemoryUsed)
 				}
-				entry.Resources = rl
+			}
+			if detail := d.detail; detail != nil {
+				entry.RestartCount = detail.RestartCount
+				if !detail.LastRestart.IsZero() {
+					entry.LastRestart = &detail.LastRestart
+				}
+				if detail.ExitCode != 0 || lc.State == "exited" {
+					ec := detail.ExitCode
+					entry.ExitCode = &ec
+				}
+				if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
+					rl := &render.ResourceLimits{Pids: r.PidsLimit}
+					if r.NanoCPUs > 0 {
+						rl.CPUs = formatCPUs(r.NanoCPUs)
+					}
+					if r.MemoryBytes > 0 {
+						rl.Memory = formatImageSize(r.MemoryBytes)
+					}
+					entry.Resources = rl
+				}
 			}
 		}
 
@@ -191,30 +242,40 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if !lc.StartedAt.IsZero() {
 			entry.StartedAt = &lc.StartedAt
 		}
-		if meta, err := runtime.LocalImageMeta(ctx, lc.Image); err == nil && meta.Digest != "" {
-			entry.ImageDigest = meta.Digest
-			if meta.Size > 0 {
-				entry.ImageSize = formatImageSize(meta.Size)
-			}
-		}
-		if detail, err := runtime.InspectContainer(ctx, lc.ID); err == nil && detail != nil {
-			entry.RestartCount = detail.RestartCount
-			if !detail.LastRestart.IsZero() {
-				entry.LastRestart = &detail.LastRestart
-			}
-			if detail.ExitCode != 0 || lc.State == "exited" {
-				ec := detail.ExitCode
-				entry.ExitCode = &ec
-			}
-			if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
-				rl := &render.ResourceLimits{Pids: r.PidsLimit}
-				if r.NanoCPUs > 0 {
-					rl.CPUs = formatCPUs(r.NanoCPUs)
+		if d := dataByID[lc.ID]; d != nil {
+			if d.meta.Digest != "" {
+				entry.ImageDigest = d.meta.Digest
+				if d.meta.Size > 0 {
+					entry.ImageSize = formatImageSize(d.meta.Size)
 				}
-				if r.MemoryBytes > 0 {
-					rl.Memory = formatImageSize(r.MemoryBytes)
+			}
+			if d.hasUsage {
+				pct := d.usage.CPUPercent
+				entry.CPUPercent = &pct
+				if d.usage.MemoryUsed > 0 {
+					entry.MemoryUsedBytes = d.usage.MemoryUsed
+					entry.MemoryUsed = formatImageSize(d.usage.MemoryUsed)
 				}
-				entry.Resources = rl
+			}
+			if detail := d.detail; detail != nil {
+				entry.RestartCount = detail.RestartCount
+				if !detail.LastRestart.IsZero() {
+					entry.LastRestart = &detail.LastRestart
+				}
+				if detail.ExitCode != 0 || lc.State == "exited" {
+					ec := detail.ExitCode
+					entry.ExitCode = &ec
+				}
+				if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
+					rl := &render.ResourceLimits{Pids: r.PidsLimit}
+					if r.NanoCPUs > 0 {
+						rl.CPUs = formatCPUs(r.NanoCPUs)
+					}
+					if r.MemoryBytes > 0 {
+						rl.Memory = formatImageSize(r.MemoryBytes)
+					}
+					entry.Resources = rl
+				}
 			}
 		}
 		entries = append(entries, entry)
@@ -296,4 +357,3 @@ func formatImageSize(b int64) string {
 func formatCPUs(nanoCPUs int64) string {
 	return fmt.Sprintf("%.2g", float64(nanoCPUs)/1e9)
 }
-
