@@ -13,12 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.4.1] - 2026-05-16
 
+### Added
+- `status --watch` (`-w`) refreshes the output repeatedly with flicker-free in-place rendering. Default interval is `2s`; `--interval` accepts Go duration strings (`500ms`, `5s`, `1m`, etc.). Exits cleanly on Ctrl+C. Each line is erased to end-of-line (`\033[K`) before overwriting so no characters from a wider previous render bleed through.
+
 ### Changed
 - `status` now runs all per-container API calls (image meta, inspect, stats) in parallel, reducing wall-clock time from ~1s×N to ~1-2s regardless of container count.
 - `status` no longer shows CPU/MEM columns by default. Use `--stats` to enable live usage collection and display. This keeps the default output fast and avoids the Docker stats collection delay for every run.
 
 ### Fixed
 - `logs` no longer shows garbage characters (`\xef\xbf\xbd` / `?`) at the start of each line. Docker multiplexes stdout and stderr with 8-byte binary frame headers when the container has no TTY; the stream is now demultiplexed transparently before output. TTY containers are unaffected.
+- `status` ports column no longer reorders between refreshes. The Docker API returns port bindings in non-deterministic order; bindings are now sorted by container port, protocol, host port, and host IP for stable output.
 
 ---
 

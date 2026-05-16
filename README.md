@@ -75,7 +75,7 @@ containerctl status    # see running state and drift
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...] [--stats]` | Show image, state, ports, uptime, restarts, and sync status. Add `--stats` to also show live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
+| `status [name...] [--stats] [--watch]` | Show image, state, ports, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
 | `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
 | `restart [name...] \| --all` | Stop, remove, recreate, and start from current config — no pull. |

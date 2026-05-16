@@ -1,11 +1,16 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
+	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,12 +27,16 @@ var (
 		Short: "Show state and sync status of all managed containers",
 		RunE:  runStatus,
 	}
-	flagStats bool
+	flagStats         bool
+	flagWatch         bool
+	flagWatchInterval time.Duration
 )
 
 func init() {
 	rootCmd.AddCommand(statusCmd)
 	statusCmd.Flags().BoolVar(&flagStats, "stats", false, "show live CPU and memory usage (adds ~1-2s)")
+	statusCmd.Flags().BoolVarP(&flagWatch, "watch", "w", false, "refresh status repeatedly")
+	statusCmd.Flags().DurationVar(&flagWatchInterval, "interval", 2*time.Second, "refresh interval (used with --watch), e.g. 500ms, 5s, 1m")
 }
 
 // liveData holds the pre-fetched results for a single live container.
@@ -39,7 +48,8 @@ type liveData struct {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	stack, err := config.Load(flagFile)
 	if err != nil {
@@ -59,6 +69,34 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if !flagWatch {
+		return renderStatus(ctx, runtime, stack, args, os.Stdout)
+	}
+
+	// Watch mode: render into a buffer, then write to stdout in one shot to
+	// avoid flicker. Move cursor to home without clearing so content is
+	// overwritten in-place; \033[J erases any leftover lines below.
+	// Sleep starts after render completes so output is visible for the full interval.
+	for {
+		var buf bytes.Buffer
+		_ = renderStatus(ctx, runtime, stack, args, &buf)
+		// Move to home, then replace each \n with \033[K\n so leftover
+		// characters from a wider previous line are erased. Finish with
+		// \033[J to clear any lines from a previously taller render.
+		frame := append([]byte("\033[H"),
+			bytes.ReplaceAll(buf.Bytes(), []byte("\n"), []byte("\033[K\n"))...)
+		frame = append(frame, []byte("\033[J")...)
+		os.Stdout.Write(frame)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(flagWatchInterval):
+		}
+	}
+}
+
+// renderStatus fetches and prints a single status snapshot to w.
+func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, args []string, w io.Writer) error {
 	st, err := state.Load(stack.Project)
 	if err != nil {
 		return err
@@ -281,11 +319,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		entries = append(entries, entry)
 	}
 
-	render.Status(os.Stdout, entries, render.Format(flagOutput), colors())
+	if flagWatch {
+		fmt.Fprintf(w, "Every %s: containerctl status          %s\n\n",
+			flagWatchInterval, time.Now().Format("2006-01-02 15:04:05"))
+	}
+	render.Status(w, entries, render.Format(flagOutput), colors())
 	return nil
 }
 
 // portBindingsToEntries converts runtime port bindings to render PortEntry slice.
+// Entries are sorted by container port then protocol for stable watch output.
 func portBindingsToEntries(ports []rt.PortBinding) []render.PortEntry {
 	out := make([]render.PortEntry, 0, len(ports))
 	for _, p := range ports {
@@ -296,6 +339,18 @@ func portBindingsToEntries(ports []rt.PortBinding) []render.PortEntry {
 			Protocol:      p.Protocol,
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ContainerPort != out[j].ContainerPort {
+			return out[i].ContainerPort < out[j].ContainerPort
+		}
+		if out[i].Protocol != out[j].Protocol {
+			return out[i].Protocol < out[j].Protocol
+		}
+		if out[i].HostPort != out[j].HostPort {
+			return out[i].HostPort < out[j].HostPort
+		}
+		return out[i].HostIP < out[j].HostIP
+	})
 	return out
 }
 
