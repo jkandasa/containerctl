@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Credential resolution now **merges** all auto-detected credential files (Docker and Podman standard paths) with `auth_file` from `stack.yaml`. Previously only the first file containing credentials for a registry was used. Now credentials from all sources are available simultaneously; `auth_file` overrides auto-detected entries for the same registry.
 - `status` column **DRIFT** renamed to **SYNC**; values changed from `yes`/`no` to `drift`/`ok`. `drift` is highlighted in yellow.
 - `check-update` and `RemoteImageDigest` now pass registry credentials (from the same auto-detected + `auth_file` sources used by `pull`) to the token endpoint. Private registry images no longer error with `context deadline exceeded` or `401 Unauthorized`.
+- `check-update` now checks `update_policy: manual` containers and reports their update status. The STATUS column shows `up-to-date (manual)` or `patch update (manual)` so the policy is visible at a glance. `--apply` still skips them.
 
 ### Fixed
 - `check-update` would hang indefinitely when a registry was slow or unresponsive. All registry HTTP calls now have a 30-second per-request timeout; each per-container check is additionally capped at 45 seconds.

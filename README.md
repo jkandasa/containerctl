@@ -148,7 +148,7 @@ vault       vault:1.15            manual
 
 `--apply` pulls and recreates containers with patch/minor updates or digest changes. Major version bumps are shown but require a manual tag edit — breaking changes are your call.
 
-Containers with `update_policy: manual` in YAML are never touched.
+Containers with `update_policy: manual` in YAML are checked and reported but never touched by `--apply`. Their STATUS shows `up-to-date (manual)` or `patch update (manual)` so available updates are visible without automatic action.
 
 ---
 

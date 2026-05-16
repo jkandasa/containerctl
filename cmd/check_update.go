@@ -37,6 +37,7 @@ type imageUpdateStatus struct {
 	status   string
 	note     string
 	newerTag string // for --apply: the target tag (empty means re-pull same tag)
+	manual   bool   // update_policy: manual — show updates but never apply
 }
 
 func runCheckUpdate(cmd *cobra.Command, args []string) error {
@@ -110,15 +111,15 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 		if len(r.image) > imageW {
 			imageW = len(r.image)
 		}
-		if len(r.status) > statusW {
-			statusW = len(r.status)
+		if s := displayStatus(r); len(s) > statusW {
+			statusW = len(s)
 		}
 	}
 	header := fmt.Sprintf("%-*s  %-*s  %-*s  %s", nameW, "NAME", imageW, "IMAGE", statusW, "STATUS", "NOTE")
 	fmt.Fprintln(os.Stdout, header)
 	fmt.Fprintln(os.Stdout, strings.Repeat("-", len(header)))
 	for _, r := range results {
-		fmt.Fprintf(os.Stdout, "%-*s  %-*s  %-*s  %s\n", nameW, r.name, imageW, r.image, statusW, r.status, r.note)
+		fmt.Fprintf(os.Stdout, "%-*s  %-*s  %-*s  %s\n", nameW, r.name, imageW, r.image, statusW, displayStatus(r), r.note)
 	}
 
 	if !flagCheckUpdateApply {
@@ -127,6 +128,9 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 
 	var toApply []imageUpdateStatus
 	for _, r := range results {
+		if r.manual {
+			continue
+		}
 		switch r.status {
 		case "digest changed", "patch update", "patch+major":
 			toApply = append(toApply, r)
@@ -210,8 +214,7 @@ func checkImage(ctx context.Context, runtime rt.Runtime, c config.Container) ima
 	defer cancel()
 
 	if c.UpdatePolicy == "manual" {
-		s.status = "manual"
-		return s
+		s.manual = true
 	}
 
 	if !isVersionTag(c.Image) {
@@ -296,6 +299,16 @@ func isVersionTag(image string) bool {
 	}
 	s := strings.TrimPrefix(tag, "v")
 	return len(s) > 0 && s[0] >= '0' && s[0] <= '9'
+}
+
+// displayStatus returns the STATUS column value for a result.
+// Manual containers show their real update status with a "(manual)" suffix
+// so the policy is visible at a glance without hiding the update information.
+func displayStatus(r imageUpdateStatus) string {
+	if r.manual {
+		return r.status + " (manual)"
+	}
+	return r.status
 }
 
 func shortDigest(d string) string {
