@@ -75,7 +75,7 @@ containerctl status    # see running state and drift
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...]` | Show image, state, ports, uptime, restart count, and sync status for all managed containers. |
+| `status [name...]` | Show image, state, ports, uptime, restart count, and sync status. Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
 | `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
 | `restart [name...] \| --all` | Stop, remove, recreate, and start from current config — no pull. |
@@ -88,7 +88,38 @@ containerctl status    # see running state and drift
 | `logs <name> [--follow] [--tail N]` | Stream container logs. |
 | `version` | Print version and runtime reachability. |
 
-Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json`, `--no-color`, `-v`.
+Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color`, `-v`.
+
+### Structured output
+
+`-o json` and `-o yaml` emit richer data than the text table:
+
+```yaml
+# containerctl status -o yaml
+- name: postgres
+  container_name: home-services_postgres
+  image: postgres:16
+  image_digest: sha256:3a9f…c21b
+  image_size: 127.3 MiB
+  state: running
+  container_id: a3f2b1c94d8e
+  ports:
+    - host_ip: 127.0.0.1
+      host_port: "5432"
+      container_port: "5432"
+      protocol: tcp
+  started_at: 2026-05-14T10:22:00Z
+  restart_count: 2
+  last_restart: 2026-05-15T03:11:42Z
+  sync: ok
+  resources:
+    cpus: "2"
+    memory: 2.0 GiB
+```
+
+Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, etc.).
+
+---
 
 ### Other runtimes (OrbStack, Colima, Rancher Desktop)
 

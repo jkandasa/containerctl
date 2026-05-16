@@ -214,7 +214,8 @@ func checkImage(ctx context.Context, runtime rt.Runtime, c config.Container) ima
 
 	if !isVersionTag(c.Image) {
 		// floating tag (latest, master, …): digest comparison is the only meaningful signal
-		local, err := runtime.LocalImageDigest(ctx, c.Image)
+		localMeta, err := runtime.LocalImageMeta(ctx, c.Image)
+		local := localMeta.Digest
 		if err != nil {
 			s.status = "error"
 			s.note = err.Error()

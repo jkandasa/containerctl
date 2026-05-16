@@ -73,55 +73,97 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		filterSet[a] = true
 	}
 
-	var rows []render.StatusRow
+	var entries []render.StatusEntry
 	for _, c := range stack.Containers {
 		if len(filterSet) > 0 && !filterSet[c.Name] {
 			continue
 		}
-		row := render.StatusRow{Name: c.Name, Image: c.Image, Ports: formatDeclaredPorts(c.Ports), Uptime: "-", Restarts: "-", Sync: "-"}
+		entry := render.StatusEntry{
+			Name:  c.Name,
+			Image: c.Image,
+			Ports: parseDeclaredPorts(c.Ports),
+			Sync:  "-",
+		}
 
 		if c.Disabled {
-			row.State = "declared-off"
-			row.Note = "disabled: true in YAML"
-			rows = append(rows, row)
+			entry.State = "declared-off"
+			entry.Note = "disabled: true in YAML"
+			entries = append(entries, entry)
 			continue
 		}
 
-		live, exists := liveByName[c.Name]
+		lc, exists := liveByName[c.Name]
 		if !exists {
 			if st.IsDisabled(c.Name) {
-				row.State = "disabled"
-				row.Note = "disabled via state file (container not on host)"
+				entry.State = "disabled"
+				entry.Note = "disabled via state file (container not on host)"
 			} else {
-				row.State = "missing"
-				row.Note = "apply will create"
+				entry.State = "missing"
+				entry.Note = "apply will create"
 			}
-			rows = append(rows, row)
+			entries = append(entries, entry)
 			continue
 		}
 
 		if st.IsDisabled(c.Name) {
-			row.State = "disabled"
-			row.Image = live.Image
-			row.Uptime = render.FormatUptime(live.StartedAt)
-			row.Note = "disabled via state file"
-			rows = append(rows, row)
+			entry.State = "disabled"
+			entry.Image = lc.Image
+			entry.ContainerID = shortID(lc.ID)
+			entry.Ports = portBindingsToEntries(lc.Ports)
+			if !lc.StartedAt.IsZero() {
+				entry.StartedAt = &lc.StartedAt
+			}
+			entry.Note = "disabled via state file"
+			entries = append(entries, entry)
 			continue
 		}
 
-		row.State = live.State
-		row.Image = live.Image
-		row.Ports = formatLivePorts(live.Ports)
-		row.Uptime = render.FormatUptime(live.StartedAt)
-		row.Restarts = formatRestarts(ctx, runtime, live.ID)
+		entry.State = lc.State
+		entry.Image = lc.Image
+		entry.ContainerName = lc.Name
+		entry.ContainerID = shortID(lc.ID)
+		entry.Ports = portBindingsToEntries(lc.Ports)
+		if !lc.StartedAt.IsZero() {
+			entry.StartedAt = &lc.StartedAt
+		}
+
+		// Image digest and size.
+		if meta, err := runtime.LocalImageMeta(ctx, lc.Image); err == nil && meta.Digest != "" {
+			entry.ImageDigest = meta.Digest
+			if meta.Size > 0 {
+				entry.ImageSize = formatImageSize(meta.Size)
+			}
+		}
+
+		// Inspect for restart count, last restart, exit code, and resource limits.
+		if detail, err := runtime.InspectContainer(ctx, lc.ID); err == nil && detail != nil {
+			entry.RestartCount = detail.RestartCount
+			if !detail.LastRestart.IsZero() {
+				entry.LastRestart = &detail.LastRestart
+			}
+			if detail.ExitCode != 0 || lc.State == "exited" {
+				ec := detail.ExitCode
+				entry.ExitCode = &ec
+			}
+			if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
+				rl := &render.ResourceLimits{Pids: r.PidsLimit}
+				if r.NanoCPUs > 0 {
+					rl.CPUs = formatCPUs(r.NanoCPUs)
+				}
+				if r.MemoryBytes > 0 {
+					rl.Memory = formatImageSize(r.MemoryBytes)
+				}
+				entry.Resources = rl
+			}
+		}
 
 		expectedHash := config.Hash(&c)
-		if live.Labels[rt.LabelConfigHash] == expectedHash {
-			row.Sync = "ok"
+		if lc.Labels[rt.LabelConfigHash] == expectedHash {
+			entry.Sync = "ok"
 		} else {
-			row.Sync = "drift"
+			entry.Sync = "drift"
 		}
-		rows = append(rows, row)
+		entries = append(entries, entry)
 	}
 
 	// also show managed containers not in YAML (orphans)
@@ -129,78 +171,129 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	for _, c := range stack.Containers {
 		declaredNames[c.Name] = true
 	}
-	for name, c := range liveByName {
+	for name, lc := range liveByName {
 		if declaredNames[name] {
 			continue
 		}
 		if len(filterSet) > 0 && !filterSet[name] {
 			continue
 		}
-		rows = append(rows, render.StatusRow{
-			Name:     name,
-			State:    c.State,
-			Image:    c.Image,
-			Ports:    formatLivePorts(c.Ports),
-			Uptime:   render.FormatUptime(c.StartedAt),
-			Restarts: formatRestarts(ctx, runtime, c.ID),
-			Sync:     "-",
-			Note:     "not in stack.yaml (orphan)",
-		})
+		entry := render.StatusEntry{
+			Name:          name,
+			ContainerName: lc.Name,
+			State:         lc.State,
+			Image:         lc.Image,
+			ContainerID:   shortID(lc.ID),
+			Ports:         portBindingsToEntries(lc.Ports),
+			Sync:          "-",
+			Note:          "not in stack.yaml (orphan)",
+		}
+		if !lc.StartedAt.IsZero() {
+			entry.StartedAt = &lc.StartedAt
+		}
+		if meta, err := runtime.LocalImageMeta(ctx, lc.Image); err == nil && meta.Digest != "" {
+			entry.ImageDigest = meta.Digest
+			if meta.Size > 0 {
+				entry.ImageSize = formatImageSize(meta.Size)
+			}
+		}
+		if detail, err := runtime.InspectContainer(ctx, lc.ID); err == nil && detail != nil {
+			entry.RestartCount = detail.RestartCount
+			if !detail.LastRestart.IsZero() {
+				entry.LastRestart = &detail.LastRestart
+			}
+			if detail.ExitCode != 0 || lc.State == "exited" {
+				ec := detail.ExitCode
+				entry.ExitCode = &ec
+			}
+			if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
+				rl := &render.ResourceLimits{Pids: r.PidsLimit}
+				if r.NanoCPUs > 0 {
+					rl.CPUs = formatCPUs(r.NanoCPUs)
+				}
+				if r.MemoryBytes > 0 {
+					rl.Memory = formatImageSize(r.MemoryBytes)
+				}
+				entry.Resources = rl
+			}
+		}
+		entries = append(entries, entry)
 	}
 
-	render.Status(os.Stdout, rows, render.Format(flagOutput), colors())
+	render.Status(os.Stdout, entries, render.Format(flagOutput), colors())
 	return nil
 }
 
-// formatLivePorts formats actual mapped ports from a running container.
-// Published:     [ip:]host:container[/proto]
-// Exposed-only:  container/proto  (internal only, matches docker ps style)
-func formatLivePorts(ports []rt.PortBinding) string {
-	parts := make([]string, 0, len(ports))
+// portBindingsToEntries converts runtime port bindings to render PortEntry slice.
+func portBindingsToEntries(ports []rt.PortBinding) []render.PortEntry {
+	out := make([]render.PortEntry, 0, len(ports))
 	for _, p := range ports {
-		var s string
-		if p.HostPort == "" {
-			s = p.ContainerPort + "/" + p.Protocol
-		} else if p.HostIP != "" {
-			s = p.HostIP + ":" + p.HostPort + ":" + p.ContainerPort
-			if p.Protocol != "tcp" {
-				s += "/" + p.Protocol
-			}
-		} else {
-			s = p.HostPort + ":" + p.ContainerPort
-			if p.Protocol != "tcp" {
-				s += "/" + p.Protocol
-			}
+		out = append(out, render.PortEntry{
+			HostIP:        p.HostIP,
+			HostPort:      p.HostPort,
+			ContainerPort: p.ContainerPort,
+			Protocol:      p.Protocol,
+		})
+	}
+	return out
+}
+
+// parseDeclaredPorts parses stack.yaml port strings into PortEntry structs.
+// Formats: "CONTAINER[/proto]", "HOST:CONTAINER[/proto]", "IP:HOST:CONTAINER[/proto]"
+func parseDeclaredPorts(ports []string) []render.PortEntry {
+	out := make([]render.PortEntry, 0, len(ports))
+	for _, s := range ports {
+		proto := "tcp"
+		if idx := strings.LastIndex(s, "/"); idx >= 0 {
+			proto = s[idx+1:]
+			s = s[:idx]
 		}
-		parts = append(parts, s)
+		parts := strings.SplitN(s, ":", 3)
+		var e render.PortEntry
+		switch len(parts) {
+		case 1:
+			e = render.PortEntry{ContainerPort: parts[0], Protocol: proto}
+		case 2:
+			e = render.PortEntry{HostPort: parts[0], ContainerPort: parts[1], Protocol: proto}
+		case 3:
+			e = render.PortEntry{HostIP: parts[0], HostPort: parts[1], ContainerPort: parts[2], Protocol: proto}
+		default:
+			e = render.PortEntry{ContainerPort: s, Protocol: proto}
+		}
+		out = append(out, e)
 	}
-	return strings.Join(parts, " ")
+	return out
 }
 
-// formatDeclaredPorts formats the port strings from stack.yaml as-is,
-// only stripping the redundant /tcp suffix.
-func formatDeclaredPorts(ports []string) string {
-	parts := make([]string, 0, len(ports))
-	for _, p := range ports {
-		parts = append(parts, strings.TrimSuffix(p, "/tcp"))
+// shortID returns the first 12 characters of a container ID.
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
 	}
-	return strings.Join(parts, " ")
+	return id
 }
 
-// formatRestarts inspects the container to get restart count and last restart
-// time, returning a compact string like "0", "3", or "3 (2h 30m)".
-func formatRestarts(ctx context.Context, runtime rt.Runtime, id string) string {
-	detail, err := runtime.InspectContainer(ctx, id)
-	if err != nil || detail == nil {
-		return "-"
+// formatImageSize converts bytes to a human-readable string (KiB/MiB/GiB).
+func formatImageSize(b int64) string {
+	const (
+		KiB = 1024
+		MiB = 1024 * KiB
+		GiB = 1024 * MiB
+	)
+	switch {
+	case b >= GiB:
+		return fmt.Sprintf("%.1f GiB", float64(b)/GiB)
+	case b >= MiB:
+		return fmt.Sprintf("%.1f MiB", float64(b)/MiB)
+	case b >= KiB:
+		return fmt.Sprintf("%.1f KiB", float64(b)/KiB)
+	default:
+		return fmt.Sprintf("%d B", b)
 	}
-	if detail.RestartCount == 0 {
-		return "0"
-	}
-	if detail.LastRestart.IsZero() {
-		return fmt.Sprintf("%d", detail.RestartCount)
-	}
-	return fmt.Sprintf("%d (%s)", detail.RestartCount, render.FormatUptime(detail.LastRestart))
 }
 
+// formatCPUs converts NanoCPUs to a decimal CPU string (e.g. "2.0", "0.5").
+func formatCPUs(nanoCPUs int64) string {
+	return fmt.Sprintf("%.2g", float64(nanoCPUs)/1e9)
+}
 

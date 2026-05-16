@@ -32,9 +32,9 @@ type Runtime interface {
 	ListNetworks(ctx context.Context, filters Filters) ([]NetworkInfo, error)
 	NetworkExists(ctx context.Context, name string) (bool, error)
 
-	// LocalImageDigest returns the digest of the image in the local cache,
-	// or "" if the image has not been pulled yet.
-	LocalImageDigest(ctx context.Context, image string) (string, error)
+	// LocalImageMeta returns digest and size of the image in the local cache.
+	// Returns zero values if the image has not been pulled yet.
+	LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
 	// RemoteImageDigest queries the registry for the current digest of image.
 	RemoteImageDigest(ctx context.Context, image string) (string, error)
 
@@ -104,6 +104,18 @@ type ContainerInfo struct {
 	Ports        []PortBinding
 	RestartCount int
 	LastRestart  time.Time // time of last exit before a restart; zero if never restarted
+	Resources    ContainerResources
+}
+
+type ContainerResources struct {
+	NanoCPUs    int64
+	MemoryBytes int64
+	PidsLimit   int64
+}
+
+type ImageMeta struct {
+	Digest string
+	Size   int64 // bytes; 0 if unavailable
 }
 
 type NetworkSpec struct {

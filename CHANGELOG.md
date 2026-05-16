@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `status` now shows a **PORTS** column with the actual mapped ports (including host IP when bound to a specific address). UPTIME is shown next to STATE for better readability.
 - `status` now shows a **RESTARTS** column with the restart count and time since last restart (e.g. `3 (2h 10m)`).
 - `socket` field in `stack.yaml` — set the runtime socket path without using `--socket` flag. Enables Docker API-compatible runtimes (OrbStack, Colima, Rancher Desktop) without any runtime-specific code.
+- `-o yaml` output format for `status` — emits structured YAML with typed fields: `container_id`, `container_name`, `started_at` and `last_restart` as RFC3339 timestamps, `restart_count` as integer, `ports` as a list of objects, `image_digest`, `image_size`, `resources` (cpus/memory/pids limits), and `exit_code` when applicable.
+- `-o json` output for `status` now uses the same rich typed model as YAML instead of display strings.
 
 ### Changed
 - Credential resolution now **merges** all auto-detected credential files (Docker and Podman standard paths) with `auth_file` from `stack.yaml`. Previously only the first file containing credentials for a registry was used. Now credentials from all sources are available simultaneously; `auth_file` overrides auto-detected entries for the same registry.

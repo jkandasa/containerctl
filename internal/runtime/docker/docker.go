@@ -47,21 +47,23 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
-func (c *Client) LocalImageDigest(ctx context.Context, img string) (string, error) {
+func (c *Client) LocalImageMeta(ctx context.Context, img string) (rt.ImageMeta, error) {
 	info, _, err := c.cli.ImageInspectWithRaw(ctx, img)
 	if err != nil {
 		if dockerclient.IsErrNotFound(err) {
-			return "", nil
+			return rt.ImageMeta{}, nil
 		}
-		return "", fmt.Errorf("inspect image %s: %w", img, err)
+		return rt.ImageMeta{}, fmt.Errorf("inspect image %s: %w", img, err)
 	}
+	var digest string
 	// RepoDigests entries look like "docker.io/library/nginx@sha256:abc..."
 	for _, d := range info.RepoDigests {
 		if i := strings.Index(d, "@"); i >= 0 {
-			return d[i+1:], nil
+			digest = d[i+1:]
+			break
 		}
 	}
-	return "", nil // locally built or tagged without a registry push
+	return rt.ImageMeta{Digest: digest, Size: info.Size}, nil
 }
 
 func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, error) {
@@ -207,6 +209,14 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 			lastRestart = t
 		}
 	}
+	var resources rt.ContainerResources
+	if info.HostConfig != nil {
+		resources = rt.ContainerResources{
+			NanoCPUs:    info.HostConfig.NanoCPUs,
+			MemoryBytes: info.HostConfig.Memory,
+			PidsLimit:   pidsLimitVal(info.HostConfig.PidsLimit),
+		}
+	}
 	name := strings.TrimPrefix(info.Name, "/")
 	return &rt.ContainerInfo{
 		ID:           info.ID,
@@ -218,6 +228,7 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 		ExitCode:     exitCode,
 		RestartCount: info.RestartCount,
 		LastRestart:  lastRestart,
+		Resources:    resources,
 	}, nil
 }
 
@@ -412,6 +423,13 @@ func buildBinds(mounts []rt.Mount) []string {
 		}
 	}
 	return out
+}
+
+func pidsLimitVal(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func parseRestartPolicy(s string) container.RestartPolicyMode {

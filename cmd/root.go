@@ -40,7 +40,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&flagFile, "file", "f", "stack.yaml", "YAML stack file")
 	rootCmd.PersistentFlags().StringVar(&flagRuntime, "runtime", "", "container runtime: docker|podman (overrides YAML)")
 	rootCmd.PersistentFlags().StringVar(&flagSocket, "socket", "", "override runtime socket path")
-	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "text", "output format: text|json")
+	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "text", "output format: text|json|yaml")
 	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "disable ANSI colors")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().StringVar(&flagProject, "project", "", "override project name from YAML")
