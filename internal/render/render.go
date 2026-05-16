@@ -105,7 +105,8 @@ type StatusRow struct {
 	Image    string `json:"image"`
 	Ports    string `json:"ports,omitempty"`
 	Uptime   string `json:"uptime"`
-	Drift    string `json:"drift"`
+	Restarts string `json:"restarts"`
+	Sync     string `json:"sync"`
 	Note     string `json:"note,omitempty"`
 }
 
@@ -118,7 +119,7 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 	}
 
 	// compute column widths from data
-	nameW, imageW, portsW := len("NAME"), len("IMAGE"), len("PORTS")
+	nameW, imageW, portsW, restartsW := len("NAME"), len("IMAGE"), len("PORTS"), len("RESTARTS")
 	for _, r := range rows {
 		if len(r.Name) > nameW {
 			nameW = len(r.Name)
@@ -129,14 +130,17 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 		if len(r.Ports) > portsW {
 			portsW = len(r.Ports)
 		}
+		if len(r.Restarts) > restartsW {
+			restartsW = len(r.Restarts)
+		}
 	}
 
-	const stateW, uptimeW, driftW = 14, 10, 5
+	const stateW, uptimeW, syncW = 14, 10, 5
 	c := colors
 
-	// column order: NAME  STATE  UPTIME  IMAGE  PORTS  DRIFT  NOTE
-	headerLine := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
-		nameW, "NAME", stateW, "STATE", uptimeW, "UPTIME", imageW, "IMAGE", portsW, "PORTS", driftW, "DRIFT", "NOTE")
+	// column order: NAME  IMAGE  STATE  PORTS  UPTIME  RESTARTS  DRIFT  NOTE
+	headerLine := fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS", uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
 	fmt.Fprintln(w, headerLine)
 	fmt.Fprintln(w, strings.Repeat("-", len(headerLine)))
 
@@ -152,13 +156,18 @@ func Status(w io.Writer, rows []StatusRow, format Format, colors Colors) {
 		case "stopped", "exited":
 			stateColor = c.Yellow
 		}
-		fmt.Fprintf(w, "%-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %s\n",
+		syncColor := ""
+		if r.Sync == "drift" {
+			syncColor = c.Yellow
+		}
+		fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
 			nameW, r.Name,
-			stateColor, stateW, r.State, c.Reset,
-			uptimeW, r.Uptime,
 			imageW, r.Image,
+			stateColor, stateW, r.State, c.Reset,
 			portsW, r.Ports,
-			driftW, r.Drift,
+			uptimeW, r.Uptime,
+			restartsW, r.Restarts,
+			syncColor, syncW, r.Sync, c.Reset,
 			r.Note)
 	}
 }

@@ -200,15 +200,24 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 	if info.State != nil {
 		exitCode = info.State.ExitCode
 	}
+	var lastRestart time.Time
+	if info.RestartCount > 0 && info.State != nil && info.State.FinishedAt != "" {
+		t, err := time.Parse(time.RFC3339Nano, info.State.FinishedAt)
+		if err == nil && t.Year() > 1 {
+			lastRestart = t
+		}
+	}
 	name := strings.TrimPrefix(info.Name, "/")
 	return &rt.ContainerInfo{
-		ID:        info.ID,
-		Name:      name,
-		Image:     info.Config.Image,
-		State:     state,
-		Labels:    info.Config.Labels,
-		StartedAt: startedAt,
-		ExitCode:  exitCode,
+		ID:           info.ID,
+		Name:         name,
+		Image:        info.Config.Image,
+		State:        state,
+		Labels:       info.Config.Labels,
+		StartedAt:    startedAt,
+		ExitCode:     exitCode,
+		RestartCount: info.RestartCount,
+		LastRestart:  lastRestart,
 	}, nil
 }
 

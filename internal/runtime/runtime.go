@@ -94,14 +94,16 @@ type Filters struct {
 }
 
 type ContainerInfo struct {
-	ID        string
-	Name      string
-	Image     string
-	State     string
-	Labels    map[string]string
-	StartedAt time.Time
-	ExitCode  int
-	Ports     []PortBinding
+	ID           string
+	Name         string
+	Image        string
+	State        string
+	Labels       map[string]string
+	StartedAt    time.Time
+	ExitCode     int
+	Ports        []PortBinding
+	RestartCount int
+	LastRestart  time.Time // time of last exit before a restart; zero if never restarted
 }
 
 type NetworkSpec struct {

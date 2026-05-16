@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status [name...]",
-	Short: "Show state and drift of all managed containers",
+	Short: "Show state and sync status of all managed containers",
 	RunE:  runStatus,
 }
 
@@ -77,7 +78,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if len(filterSet) > 0 && !filterSet[c.Name] {
 			continue
 		}
-		row := render.StatusRow{Name: c.Name, Image: c.Image, Ports: formatDeclaredPorts(c.Ports), Uptime: "-", Drift: "-"}
+		row := render.StatusRow{Name: c.Name, Image: c.Image, Ports: formatDeclaredPorts(c.Ports), Uptime: "-", Restarts: "-", Sync: "-"}
 
 		if c.Disabled {
 			row.State = "declared-off"
@@ -112,12 +113,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		row.Image = live.Image
 		row.Ports = formatLivePorts(live.Ports)
 		row.Uptime = render.FormatUptime(live.StartedAt)
+		row.Restarts = formatRestarts(ctx, runtime, live.ID)
 
 		expectedHash := config.Hash(&c)
 		if live.Labels[rt.LabelConfigHash] == expectedHash {
-			row.Drift = "no"
+			row.Sync = "ok"
 		} else {
-			row.Drift = "yes"
+			row.Sync = "drift"
 		}
 		rows = append(rows, row)
 	}
@@ -135,13 +137,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		rows = append(rows, render.StatusRow{
-			Name:   name,
-			State:  c.State,
-			Image:  c.Image,
-			Ports:  formatLivePorts(c.Ports),
-			Uptime: render.FormatUptime(c.StartedAt),
-			Drift:  "-",
-			Note:   "not in stack.yaml (orphan)",
+			Name:     name,
+			State:    c.State,
+			Image:    c.Image,
+			Ports:    formatLivePorts(c.Ports),
+			Uptime:   render.FormatUptime(c.StartedAt),
+			Restarts: formatRestarts(ctx, runtime, c.ID),
+			Sync:     "-",
+			Note:     "not in stack.yaml (orphan)",
 		})
 	}
 
@@ -182,6 +185,22 @@ func formatDeclaredPorts(ports []string) string {
 		parts = append(parts, strings.TrimSuffix(p, "/tcp"))
 	}
 	return strings.Join(parts, " ")
+}
+
+// formatRestarts inspects the container to get restart count and last restart
+// time, returning a compact string like "0", "3", or "3 (2h 30m)".
+func formatRestarts(ctx context.Context, runtime rt.Runtime, id string) string {
+	detail, err := runtime.InspectContainer(ctx, id)
+	if err != nil || detail == nil {
+		return "-"
+	}
+	if detail.RestartCount == 0 {
+		return "0"
+	}
+	if detail.LastRestart.IsZero() {
+		return fmt.Sprintf("%d", detail.RestartCount)
+	}
+	return fmt.Sprintf("%d (%s)", detail.RestartCount, render.FormatUptime(detail.LastRestart))
 }
 
 
