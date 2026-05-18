@@ -45,9 +45,23 @@ type Runtime interface {
 	// ContainerStats returns a single live usage snapshot for the container.
 	ContainerStats(ctx context.Context, id string) (ContainerUsage, error)
 
+	// EngineVersion returns version details of the container engine daemon.
+	EngineVersion(ctx context.Context) (EngineInfo, error)
+
 	Name() string
 	Ping(ctx context.Context) error
 	Close() error
+}
+
+// EngineInfo holds version details returned by the container engine daemon.
+type EngineInfo struct {
+	Version       string // engine version, e.g. "28.5.2"
+	APIVersion    string // API version, e.g. "1.47"
+	MinAPIVersion string // minimum supported API version
+	Platform      string // platform name, e.g. "Docker Engine - Community"
+	OS            string // e.g. "linux"
+	Arch          string // e.g. "amd64"
+	KernelVersion string // host kernel version
 }
 
 type ContainerSpec struct {
@@ -59,7 +73,8 @@ type ContainerSpec struct {
 	Labels        map[string]string
 	Ports         []PortBinding
 	Mounts        []Mount
-	Networks      []string
+	Networks       []string
+	NetworkAliases []string
 	Resources     Resources
 	Healthcheck   *Healthcheck
 	RestartPolicy string

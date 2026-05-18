@@ -9,19 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
----
-
-## [v1.4.1] - 2026-05-16
-
 ### Added
-- `status --watch` (`-w`) refreshes the output repeatedly with flicker-free in-place rendering. Default interval is `2s`; `--interval` accepts Go duration strings (`500ms`, `5s`, `1m`, etc.). Exits cleanly on Ctrl+C. Each line is erased to end-of-line (`\033[K`) before overwriting so no characters from a wider previous render bleed through.
+- `status --watch` (`-w`) refreshes the output repeatedly with flicker-free in-place rendering. Default interval is `2s`; `--interval` accepts Go duration strings (`500ms`, `5s`, `1m`, etc.). Exits cleanly on Ctrl+C.
+- `status --stats` shows live CPU and memory usage. Omitted by default to keep status fast; collecting stats adds ~1-2s.
+- `network_aliases` field in `stack.yaml` — additional DNS names for a container on its connected networks. Useful for reaching a container via a custom hostname (e.g. `db.backend`) without changing its container name. Aliases are registered on every network the container joins and are included in the config hash so changes trigger recreation.
+- `version` now shows container engine details: engine version, API version, OS/arch, and kernel version. Supports `-o json|yaml` for structured output.
 
 ### Changed
 - `status` now runs all per-container API calls (image meta, inspect, stats) in parallel, reducing wall-clock time from ~1s×N to ~1-2s regardless of container count.
-- `status` no longer shows CPU/MEM columns by default. Use `--stats` to enable live usage collection and display. This keeps the default output fast and avoids the Docker stats collection delay for every run.
 
 ### Fixed
-- `logs` no longer shows garbage characters (`\xef\xbf\xbd` / `?`) at the start of each line. Docker multiplexes stdout and stderr with 8-byte binary frame headers when the container has no TTY; the stream is now demultiplexed transparently before output. TTY containers are unaffected.
+- `logs` no longer shows garbage characters at the start of each line. Docker multiplexes stdout and stderr with 8-byte binary frame headers when the container has no TTY; the stream is now demultiplexed transparently before output. TTY containers are unaffected.
 - `status` ports column no longer reorders between refreshes. The Docker API returns port bindings in non-deterministic order; bindings are now sorted by container port, protocol, host port, and host IP for stable output.
 
 ---
@@ -44,8 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `check-update` would hang indefinitely when a registry was slow or unresponsive. All registry HTTP calls now have a 30-second per-request timeout; each per-container check is additionally capped at 45 seconds.
-
-### Fixed
 - `status` port display no longer duplicates entries — Docker reports each binding twice (IPv4 `0.0.0.0` and IPv6 `::`); bindings are now deduplicated and ports bound to all interfaces are shown without an IP prefix.
 - `status` now shows exposed-only ports (internal network ports with no host binding) formatted as `port/proto`, matching `docker ps` style.
 
@@ -77,12 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.1.0] - 2026-05-14
 
-### Fixed
-- Private registry pulls now work correctly. The Docker/Podman SDK does not read credential files automatically; credentials are now loaded and passed explicitly on every pull.
-
 ### Added
 - Credential auto-detection covers both Docker (`~/.docker/config.json`) and Podman (`$XDG_RUNTIME_DIR/containers/auth.json`, `~/.config/containers/auth.json`, `/etc/containers/auth.json`) out of the box. Environment overrides `$DOCKER_CONFIG` and `$REGISTRY_AUTH_FILE` are respected.
 - `auth_file` field in `stack.yaml` — point to an explicit credential file (Docker/Podman JSON format) when auto-detection is not sufficient (e.g. CI, rootless Podman with non-standard paths, or multiple credential stores on the same host).
+
+### Fixed
+- Private registry pulls now work correctly. The Docker/Podman SDK does not read credential files automatically; credentials are now loaded and passed explicitly on every pull.
 
 ---
 

@@ -28,7 +28,8 @@ type Container struct {
 	Volumes     []string          `yaml:"volumes,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"`
 	EnvFile     []string          `yaml:"env_file,omitempty"`
-	Networks    []string          `yaml:"networks,omitempty"`
+	Networks       []string          `yaml:"networks,omitempty"`
+	NetworkAliases []string          `yaml:"network_aliases,omitempty"`
 	Resources   Resources         `yaml:"resources,omitempty"`
 	Healthcheck *Healthcheck      `yaml:"healthcheck,omitempty"`
 	Labels      map[string]string `yaml:"labels,omitempty"`

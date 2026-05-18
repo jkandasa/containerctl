@@ -49,6 +49,22 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
+func (c *Client) EngineVersion(ctx context.Context) (rt.EngineInfo, error) {
+	v, err := c.cli.ServerVersion(ctx)
+	if err != nil {
+		return rt.EngineInfo{}, err
+	}
+	return rt.EngineInfo{
+		Version:       v.Version,
+		APIVersion:    v.APIVersion,
+		MinAPIVersion: v.MinAPIVersion,
+		Platform:      v.Platform.Name,
+		OS:            v.Os,
+		Arch:          v.Arch,
+		KernelVersion: v.KernelVersion,
+	}, nil
+}
+
 func (c *Client) LocalImageMeta(ctx context.Context, img string) (rt.ImageMeta, error) {
 	info, _, err := c.cli.ImageInspectWithRaw(ctx, img)
 	if err != nil {
@@ -218,7 +234,7 @@ func (c *Client) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (st
 	if len(spec.Networks) > 0 {
 		netCfg = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{
-				spec.Networks[0]: {},
+				spec.Networks[0]: {Aliases: spec.NetworkAliases},
 			},
 		}
 	}
@@ -230,7 +246,8 @@ func (c *Client) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (st
 
 	// connect additional networks (skip if none or only one, which is in netCfg already)
 	for _, netName := range spec.Networks[min(1, len(spec.Networks)):] {
-		if err := c.cli.NetworkConnect(ctx, netName, resp.ID, &network.EndpointSettings{}); err != nil {
+		ep := &network.EndpointSettings{Aliases: spec.NetworkAliases}
+		if err := c.cli.NetworkConnect(ctx, netName, resp.ID, ep); err != nil {
 			// best-effort cleanup
 			_ = c.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 			return "", fmt.Errorf("connect %s to network %s: %w", spec.Name, netName, err)

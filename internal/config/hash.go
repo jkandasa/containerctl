@@ -18,7 +18,8 @@ type hashable struct {
 	Ports         []string          `json:"ports,omitempty"`
 	Volumes       []string          `json:"volumes,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
-	Networks      []string          `json:"networks,omitempty"`
+	Networks       []string          `json:"networks,omitempty"`
+	NetworkAliases []string          `json:"network_aliases,omitempty"`
 	CPUs          string            `json:"cpus,omitempty"`
 	Memory        string            `json:"memory,omitempty"`
 	PidsLimit     int64             `json:"pids_limit,omitempty"`
@@ -31,6 +32,7 @@ type hashable struct {
 	CapAdd        []string          `json:"cap_add,omitempty"`
 	CapDrop       []string          `json:"cap_drop,omitempty"`
 	Privileged    bool              `json:"privileged,omitempty"`
+	SecurityOpt   []string          `json:"security_opt,omitempty"`
 	ReadOnly      bool              `json:"read_only,omitempty"`
 	Tmpfs         []string          `json:"tmpfs,omitempty"`
 	DependsOn     []string          `json:"depends_on,omitempty"`
@@ -112,6 +114,13 @@ func normalize(c *Container) hashable {
 		h.Networks = c.Networks
 	}
 
+	if len(c.NetworkAliases) > 0 {
+		na := make([]string, len(c.NetworkAliases))
+		copy(na, c.NetworkAliases)
+		sort.Strings(na)
+		h.NetworkAliases = na
+	}
+
 	if len(c.DNS) > 0 {
 		dns := make([]string, len(c.DNS))
 		copy(dns, c.DNS)
@@ -129,6 +138,12 @@ func normalize(c *Container) hashable {
 		copy(cd, c.CapDrop)
 		sort.Strings(cd)
 		h.CapDrop = cd
+	}
+	if len(c.SecurityOpt) > 0 {
+		so := make([]string, len(c.SecurityOpt))
+		copy(so, c.SecurityOpt)
+		sort.Strings(so)
+		h.SecurityOpt = so
 	}
 
 	return h

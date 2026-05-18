@@ -64,7 +64,7 @@ containers:
 ```sh
 containerctl diff      # preview what will change
 containerctl apply     # reconcile host to desired state
-containerctl status    # see running state and drift
+containerctl status    # see running state and sync status
 ```
 
 ---
@@ -86,7 +86,7 @@ containerctl status    # see running state and drift
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...>` | Remove from state file and reconcile. |
 | `logs <name> [--follow] [--tail N]` | Stream container logs. |
-| `version` | Print version and runtime reachability. |
+| `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 
 Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color`, `-v`.
 
@@ -130,7 +130,7 @@ Fields that are not applicable are omitted (`resources` when no limits are set, 
 
 ---
 
-### Other runtimes (OrbStack, Colima, Rancher Desktop)
+## Other runtimes (OrbStack, Colima, Rancher Desktop)
 
 Any Docker API-compatible runtime works. Set the socket path in `stack.yaml` and omit `runtime:`:
 
@@ -140,6 +140,32 @@ socket: /Users/you/.orbstack/run/docker.sock
 ```
 
 The `--socket` flag overrides `stack.yaml`; `--runtime` overrides `stack.runtime`.
+
+---
+
+## Network aliases
+
+By default, containers on the same user-defined network reach each other using the container name (e.g. `http://postgres:5432`). `network_aliases` lets you add extra DNS names without changing the container name:
+
+```yaml
+containers:
+  - name: postgres
+    image: postgres:16
+    networks: [backend]
+    network_aliases:
+      - db.backend
+      - primary.backend
+```
+
+Any container on `backend` can now reach it via any of:
+
+```
+http://postgres:5432      # container name (always works)
+http://db.backend:5432    # alias
+http://primary.backend:5432 # alias
+```
+
+Aliases are registered on every network the container joins. Adding, removing, or changing aliases is detected by the config hash and triggers recreation on the next `apply`.
 
 ---
 
@@ -228,6 +254,8 @@ containers:
     env_file:
       - "secrets.env"
     networks: [backend]
+    network_aliases:
+      - db.backend            # reachable as this name on all connected networks
     depends_on: [postgres]   # start order only; not a healthcheck gate.
     resources:
       cpus: "2.0"
