@@ -78,17 +78,30 @@ containerctl status    # see running state and sync status
 | `status [name...] [--stats] [--watch]` | Show image, state, ports, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
 | `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
-| `restart [name...] \| --all` | Stop, remove, recreate, and start from current config — no pull. |
+| `restart [name...] \| --all [--follow]` | Stop, remove, recreate, and start from current config — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
 | `down [name...]` | Stop and remove managed containers. No names = whole project. |
 | `stop <name...> \| --all` | Transient stop. Container kept on disk; next `apply` restarts it. |
-| `start <name...> \| --all` | Start a stopped container without reconciling. |
+| `start <name...> \| --all [--follow]` | Start a stopped container without reconciling. `--follow` streams logs after start (single container only). |
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...>` | Remove from state file and reconcile. |
+| `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
 | `logs <name> [--follow] [--tail N]` | Stream container logs. |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 
 Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color`, `-v`.
+
+### exec
+
+`exec` opens an interactive shell (or runs any command) inside a running container:
+
+```sh
+containerctl exec postgres            # /bin/sh
+containerctl exec postgres bash       # bash
+containerctl exec postgres -- ps aux  # non-interactive
+```
+
+When stdin is a terminal, a PTY is allocated and the terminal is put into raw mode automatically — no `-it` flags needed. Window resize is forwarded to the container so `vim`, `less`, and similar tools work correctly. The terminal is always restored cleanly on exit, including when the command exits with a non-zero code.
 
 ### Structured output
 
@@ -271,6 +284,8 @@ containers:
     hostname: string
     working_dir: string
     dns: [8.8.8.8]
+    group_add:
+      - "1500"             # add supplementary GID without changing user or primary group
     cap_add: [NET_ADMIN]
     cap_drop: [ALL]
     privileged: bool

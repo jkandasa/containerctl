@@ -37,6 +37,7 @@ type Container struct {
 	WorkingDir  string            `yaml:"working_dir,omitempty"`
 	Hostname    string            `yaml:"hostname,omitempty"`
 	DNS         []string          `yaml:"dns,omitempty"`
+	GroupAdd    []string          `yaml:"group_add,omitempty"`
 	CapAdd      []string          `yaml:"cap_add,omitempty"`
 	CapDrop     []string          `yaml:"cap_drop,omitempty"`
 	Privileged  bool              `yaml:"privileged,omitempty"`

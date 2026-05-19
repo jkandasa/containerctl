@@ -30,6 +30,24 @@ func init() {
 	logsCmd.Flags().IntVar(&flagLogsTail, "tail", 0, "number of lines from end to show (0 = all)")
 }
 
+func followContainerLogs(ctx context.Context, runtime rt.Runtime, stack *config.Stack, name string) error {
+	fullName := config.ContainerFullName(stack.Project, name)
+	info, err := runtime.InspectContainer(ctx, fullName)
+	if err != nil {
+		return err
+	}
+	if info == nil {
+		return fmt.Errorf("container %q not found", name)
+	}
+	rc, err := runtime.Logs(ctx, info.ID, rt.LogOptions{Follow: true})
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	_, err = io.Copy(os.Stdout, rc)
+	return err
+}
+
 func runLogs(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	name := args[0]

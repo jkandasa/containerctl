@@ -243,6 +243,7 @@ func containerSpec(project string, c *config.Container) (rt.ContainerSpec, error
 		WorkingDir:    c.WorkingDir,
 		Hostname:      effectiveHostname(c),
 		DNS:           c.DNS,
+		GroupAdd:      c.GroupAdd,
 		CapAdd:        c.CapAdd,
 		CapDrop:       c.CapDrop,
 		Privileged:    c.Privileged,

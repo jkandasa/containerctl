@@ -11,7 +11,10 @@ import (
 	"github.com/jkandasa/containerctl/internal/state"
 )
 
-var flagStartAll bool
+var (
+	flagStartAll    bool
+	flagStartFollow bool
+)
 
 var startCmd = &cobra.Command{
 	Use:   "start [name...]",
@@ -23,11 +26,15 @@ var startCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(startCmd)
 	startCmd.Flags().BoolVar(&flagStartAll, "all", false, "start all managed containers in the project")
+	startCmd.Flags().BoolVar(&flagStartFollow, "follow", false, "follow log output after starting (single container only)")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
 	if !flagStartAll && len(args) == 0 {
 		return fmt.Errorf("specify at least one container name, or use --all")
+	}
+	if flagStartFollow && (flagStartAll || len(args) > 1) {
+		return fmt.Errorf("--follow requires exactly one container name")
 	}
 
 	ctx := context.Background()
@@ -94,6 +101,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("start %s: %w", name, err)
 		}
 		fmt.Printf("  %-20s started   → running\n", name)
+	}
+	if flagStartFollow {
+		return followContainerLogs(ctx, runtime, stack, names[0])
 	}
 	return nil
 }

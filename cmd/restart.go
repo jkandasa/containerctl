@@ -12,7 +12,10 @@ import (
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
-var flagRestartAll bool
+var (
+	flagRestartAll    bool
+	flagRestartFollow bool
+)
 
 var restartCmd = &cobra.Command{
 	Use:   "restart [name...]",
@@ -24,11 +27,15 @@ var restartCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(restartCmd)
 	restartCmd.Flags().BoolVar(&flagRestartAll, "all", false, "restart all managed containers in the project")
+	restartCmd.Flags().BoolVar(&flagRestartFollow, "follow", false, "follow log output after restarting (single container only)")
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
 	if !flagRestartAll && len(args) == 0 {
 		return fmt.Errorf("specify at least one container name, or use --all")
+	}
+	if flagRestartFollow && (flagRestartAll || len(args) > 1) {
+		return fmt.Errorf("--follow requires exactly one container name")
 	}
 
 	ctx := context.Background()
@@ -107,6 +114,9 @@ func runRestart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("start %s: %w", name, err)
 		}
 		fmt.Printf("  %-20s restarted → running\n", name)
+	}
+	if flagRestartFollow {
+		return followContainerLogs(ctx, runtime, stack, names[0])
 	}
 	return nil
 }

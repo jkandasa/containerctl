@@ -29,6 +29,7 @@ type hashable struct {
 	WorkingDir    string            `json:"working_dir,omitempty"`
 	Hostname      string            `json:"hostname,omitempty"`
 	DNS           []string          `json:"dns,omitempty"`
+	GroupAdd      []string          `json:"group_add,omitempty"`
 	CapAdd        []string          `json:"cap_add,omitempty"`
 	CapDrop       []string          `json:"cap_drop,omitempty"`
 	Privileged    bool              `json:"privileged,omitempty"`
@@ -126,6 +127,12 @@ func normalize(c *Container) hashable {
 		copy(dns, c.DNS)
 		sort.Strings(dns)
 		h.DNS = dns
+	}
+	if len(c.GroupAdd) > 0 {
+		ga := make([]string, len(c.GroupAdd))
+		copy(ga, c.GroupAdd)
+		sort.Strings(ga)
+		h.GroupAdd = ga
 	}
 	if len(c.CapAdd) > 0 {
 		ca := make([]string, len(c.CapAdd))

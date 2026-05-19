@@ -16,6 +16,7 @@ import (
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	"github.com/moby/term"
 
 	"github.com/jkandasa/containerctl/internal/registry"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
@@ -216,6 +217,7 @@ func (c *Client) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (st
 		Binds:         buildBinds(spec.Mounts),
 		RestartPolicy: container.RestartPolicy{Name: parseRestartPolicy(spec.RestartPolicy)},
 		DNS:           spec.DNS,
+		GroupAdd:      spec.GroupAdd,
 		CapAdd:        spec.CapAdd,
 		CapDrop:       spec.CapDrop,
 		Privileged:    spec.Privileged,
@@ -435,6 +437,79 @@ func (c *Client) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.Re
 		pw.CloseWithError(copyErr)
 	}()
 	return pr, nil
+}
+
+func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int, error) {
+	cmd := opts.Command
+	if len(cmd) == 0 {
+		cmd = []string{"/bin/sh"}
+	}
+
+	var initialSize *[2]uint
+	if opts.Tty && opts.StdinFd != 0 {
+		if ws, err := term.GetWinsize(opts.StdinFd); err == nil {
+			sz := [2]uint{uint(ws.Height), uint(ws.Width)}
+			initialSize = &sz
+		}
+	}
+
+	execResp, err := c.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdin:  opts.Interactive,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          opts.Tty,
+		Env:          opts.Env,
+		ConsoleSize:  initialSize,
+	})
+	if err != nil {
+		return -1, fmt.Errorf("exec create: %w", err)
+	}
+
+	attach, err := c.cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{
+		Tty:         opts.Tty,
+		ConsoleSize: initialSize,
+	})
+	if err != nil {
+		return -1, fmt.Errorf("exec attach: %w", err)
+	}
+	defer attach.Close()
+
+	if opts.Tty && opts.StdinFd != 0 {
+		resizeCtx, cancelResize := context.WithCancel(ctx)
+		defer cancelResize()
+		watchResize(resizeCtx, opts.StdinFd, func(rows, cols uint16) {
+			_ = c.cli.ContainerExecResize(resizeCtx, execResp.ID, container.ResizeOptions{
+				Height: uint(rows),
+				Width:  uint(cols),
+			})
+		})
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		if opts.Tty {
+			_, err = io.Copy(opts.Stdout, attach.Reader)
+		} else {
+			_, err = stdcopy.StdCopy(opts.Stdout, opts.Stderr, attach.Reader)
+		}
+		done <- err
+	}()
+
+	if opts.Interactive && opts.Stdin != nil {
+		go func() {
+			io.Copy(attach.Conn, opts.Stdin)
+			attach.CloseWrite()
+		}()
+	}
+
+	<-done
+
+	inspect, err := c.cli.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return -1, fmt.Errorf("exec inspect: %w", err)
+	}
+	return inspect.ExitCode, nil
 }
 
 func (c *Client) CreateNetwork(ctx context.Context, spec rt.NetworkSpec) (string, error) {

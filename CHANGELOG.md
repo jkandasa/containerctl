@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `group_add` field in `stack.yaml` — adds supplementary GIDs to the container process without changing the user or primary group. Accepts a list of group IDs or names (e.g. `["1500", "docker"]`). Changes are included in the config hash and trigger recreation on `apply`.
+- `exec <name> [command...]` — run a command inside a running container. Defaults to `/bin/sh`. Allocates a PTY and sets raw terminal mode when stdin is a terminal; window resize is forwarded automatically. Non-TTY invocations (piped stdin) run without a PTY.
+- `start --follow` and `restart --follow` stream container logs immediately after the container is running. Requires a single container name (not compatible with `--all` or multiple names).
+
+### Fixed
+- `exec` no longer leaves the terminal in raw mode (invisible input) after the container exits with a non-zero code. `os.Exit` bypasses deferred functions; the terminal state is now restored explicitly before exit.
+
 ---
 
 ## [v1.5.0] - 2026-05-18

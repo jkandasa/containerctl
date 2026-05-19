@@ -48,6 +48,9 @@ type Runtime interface {
 	// EngineVersion returns version details of the container engine daemon.
 	EngineVersion(ctx context.Context) (EngineInfo, error)
 
+	// Exec runs a command in a running container and returns its exit code.
+	Exec(ctx context.Context, id string, opts ExecOptions) (int, error)
+
 	Name() string
 	Ping(ctx context.Context) error
 	Close() error
@@ -82,6 +85,7 @@ type ContainerSpec struct {
 	WorkingDir    string
 	Hostname      string
 	DNS           []string
+	GroupAdd      []string
 	CapAdd        []string
 	CapDrop       []string
 	Privileged    bool
@@ -163,6 +167,18 @@ type LogOptions struct {
 	Tail       int
 	Timestamps bool
 	Since      time.Time
+}
+
+// ExecOptions configures a container exec session.
+type ExecOptions struct {
+	Command     []string  // command to run; defaults to ["/bin/sh"] in the implementation
+	Tty         bool      // allocate a pseudo-TTY
+	Interactive bool      // keep stdin open
+	Env         []string  // additional env vars as KEY=VALUE
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+	StdinFd     uintptr // file descriptor of Stdin; used for window-size when Tty=true
 }
 
 type Healthcheck struct {
