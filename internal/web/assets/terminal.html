@@ -499,7 +499,6 @@
             break;
           case 'error':
             term.write('\r\n\x1b[31m' + msg.msg + '\x1b[0m');
-            writePrompt();
             break;
           case 'clear':
             term.clear();
