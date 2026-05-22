@@ -1,0 +1,363 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+/* ── Login ──────────────────────────────────────── */
+.login-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.login-card {
+  width: 320px;
+  padding: 2rem;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+}
+
+.login-logo {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #79c0ff;
+  margin-bottom: 1.5rem;
+  letter-spacing: 0.05em;
+}
+
+.login-error {
+  background: #3d1a1a;
+  border: 1px solid #ff7b72;
+  color: #ff7b72;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #e6edf3;
+  font-family: inherit;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  outline: none;
+}
+
+.login-card input[type="password"]:focus {
+  border-color: #79c0ff;
+}
+
+.login-card button[type="submit"] {
+  width: 100%;
+  padding: 0.6rem;
+  background: #238636;
+  border: 1px solid #2ea043;
+  border-radius: 4px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.login-card button[type="submit"]:hover {
+  background: #2ea043;
+}
+
+/* ── Terminal ───────────────────────────────────── */
+.terminal-body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 40px;
+  padding: 0 1rem;
+  background: #161b22;
+  border-bottom: 2px solid #30363d;
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+
+/* Push the logout form to the far right */
+.topbar form { margin-left: auto; }
+
+/* Amber border signals an active exec session */
+.topbar.exec-mode { border-bottom-color: #d29922; }
+
+/* ── Exec session badge ──────────────────────────────────── */
+.exec-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid rgba(210, 153, 34, 0.3);
+  border-radius: 4px;
+  padding: 0 0.55rem;
+  height: 26px;
+  font-size: 0.8rem;
+}
+.exec-badge.hidden { display: none; }
+
+.exec-badge-sep   { color: #484f58; }
+.exec-badge-label { color: #d29922; font-weight: 700; letter-spacing: 0.04em; }
+.exec-badge-name  { color: #e3b341; font-weight: 600; }
+
+.exec-badge-cmd {
+  color: #8b949e;
+  font-size: 0.75rem;
+}
+.exec-badge-cmd::before { content: '('; }
+.exec-badge-cmd::after  { content: ')'; }
+
+.exec-exit-btn {
+  background: transparent;
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  border-radius: 3px;
+  color: #d29922;
+  font-family: inherit;
+  font-size: 0.72rem;
+  padding: 2px 7px;
+  cursor: pointer;
+  margin-left: 0.15rem;
+  transition: background 0.15s, border-color 0.15s;
+}
+.exec-exit-btn:hover {
+  background: rgba(210, 153, 34, 0.2);
+  border-color: rgba(210, 153, 34, 0.7);
+}
+
+.topbar-title {
+  color: #79c0ff;
+  font-size: 0.875rem;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+}
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #8b949e;
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  border-color: #8b949e;
+  color: #e6edf3;
+}
+
+#terminal-container {
+  flex: 1;
+  min-height: 0; /* required for flex children; without this the container won't shrink */
+  width: 100%;
+  overflow: hidden;
+}
+
+/* ── Editor overlay ─────────────────────────────── */
+.editor-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0d1117;
+  z-index: 100;
+}
+.editor-overlay.hidden { display: none; }
+
+.editor-topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 38px;
+  padding: 0 1rem;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.editor-icon {
+  color: #79c0ff;
+  font-size: 1rem;
+}
+
+.editor-filename {
+  color: #e6edf3;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.editor-status {
+  color: #3fb950;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+.editor-status-error {
+  color: #ff7b72;
+}
+
+.editor-hint {
+  color: #484f58;
+  font-size: 0.75rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.editor-cm {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Make CodeMirror fill the flex container */
+.editor-cm .CodeMirror {
+  height: 100%;
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #0d1117;
+  color: #e6edf3;
+}
+
+/* Gutter */
+.editor-cm .CodeMirror-gutters {
+  background: #0d1117;
+  border-right: 1px solid #21262d;
+}
+.editor-cm .CodeMirror-linenumber {
+  color: #484f58;
+  padding: 0 10px 0 6px;
+}
+
+/* Active (current) line — horizontal highlight */
+.editor-cm .CodeMirror-activeline-background {
+  background: rgba(121, 192, 255, 0.07);
+}
+.editor-cm .CodeMirror-activeline .CodeMirror-linenumber {
+  color: #79c0ff;
+}
+
+/* Vertical column crosshair — follows cursor via --cur-x CSS var */
+.editor-cm .CodeMirror-scroll {
+  position: relative;
+}
+.editor-cm .CodeMirror-scroll::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cur-x, -9999px);
+  width: 1px;
+  background: rgba(121, 192, 255, 0.12);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Cursor */
+.editor-cm .CodeMirror-cursor {
+  border-left: 2px solid #79c0ff;
+}
+.editor-cm .CodeMirror-secondarycursor {
+  border-left: 2px solid #484f58;
+}
+
+/* Selection */
+.editor-cm .CodeMirror-selected,
+.editor-cm .CodeMirror-focused .CodeMirror-selected {
+  background: rgba(38, 79, 120, 0.6);
+}
+
+/* Matching brackets */
+.editor-cm .CodeMirror-matchingbracket {
+  color: #56d364 !important;
+  font-weight: bold;
+}
+
+/* YAML syntax colours */
+.editor-cm .cm-s-default .cm-keyword   { color: #ff7b72; }
+.editor-cm .cm-s-default .cm-atom      { color: #79c0ff; }
+.editor-cm .cm-s-default .cm-number    { color: #79c0ff; }
+.editor-cm .cm-s-default .cm-string    { color: #a5d6ff; }
+.editor-cm .cm-s-default .cm-string-2  { color: #a5d6ff; }
+.editor-cm .cm-s-default .cm-comment   { color: #8b949e; font-style: italic; }
+.editor-cm .cm-s-default .cm-variable  { color: #e6edf3; }
+.editor-cm .cm-s-default .cm-variable-2{ color: #ffa657; }
+.editor-cm .cm-s-default .cm-meta      { color: #bc8cff; }
+.editor-cm .cm-s-default .cm-tag       { color: #7ee787; }
+.editor-cm .cm-s-default .cm-property  { color: #7ee787; }
+.editor-cm .cm-s-default .cm-qualifier { color: #d2a8ff; }
+.editor-cm .cm-s-default .cm-builtin   { color: #ffa657; }
+.editor-cm .cm-s-default .cm-error     { color: #ff7b72; background: rgba(255,123,114,0.1); }
+
+/* Scrollbar */
+.editor-cm .CodeMirror-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.editor-cm .CodeMirror-scroll::-webkit-scrollbar-track { background: #0d1117; }
+.editor-cm .CodeMirror-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+.editor-cm .CodeMirror-scroll::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* Vim ex command line (shown at the bottom of CodeMirror) */
+.editor-cm .CodeMirror-dialog {
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  padding: 4px 8px;
+  font-family: inherit;
+  color: #e6edf3;
+}
+.editor-cm .CodeMirror-dialog input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e6edf3;
+  font-family: inherit;
+  font-size: 0.85rem;
+  width: 40%;
+}
+
+/* ── Status bar ──────────────────────────────────── */
+.editor-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 1rem;
+  background: #161b22;
+  border-top: 1px solid #21262d;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.vim-mode {
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+.vim-mode-normal  { background: #1f6feb; color: #fff; }
+.vim-mode-insert  { background: #238636; color: #fff; }
+.vim-mode-visual  { background: #9a3db5; color: #fff; }
+.vim-mode-vline   { background: #9a3db5; color: #fff; }
+.vim-mode-replace { background: #da3633; color: #fff; }
+
+.editor-pos {
+  color: #8b949e;
+}

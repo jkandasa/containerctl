@@ -116,6 +116,17 @@ networks:              # optional. Networks managed by containerctl.
     labels: map        # optional.
 containers:            # required, non-empty.
   - ...                # see below.
+
+serve:                 # optional. Controls behaviour of "containerctl serve".
+  exec:
+    enabled: bool      # default false. Must be true for any exec command.
+    allowed: [string]  # optional allowlist of logical container names.
+                       # Empty = all containers permitted when enabled is true.
+                       # Non-empty = only listed containers may be exec'd into.
+  edit:
+    enabled: bool      # default false. Must be true for the browser stack file editor.
+  use:
+    enabled: bool      # default false. Must be true for the "use" stack-switch command.
 ```
 
 ### Container
@@ -686,6 +697,446 @@ containers:
 - **Schema versioning.** Top-level `apiVersion:` field.
 - **TUI status view.** `containerctl status --watch` with a refreshing table.
 - **`check-update` digest mode for semver tags.** Optionally also compare local digest against remote for pinned semver tags, to detect in-place re-pushes of the same tag (rare for versioned releases but possible).
+
+---
+
+## 12. Web terminal (`containerctl serve`)
+
+An optional HTTP/HTTPS server that exposes a browser-based terminal for remote monitoring and management. After authenticating with a shared token, the user lands in a terminal where they can run the same containerctl subcommands as the CLI.
+
+### Design constraints
+
+- **No daemon.** `serve` is a foreground process. No new persistent state beyond TLS certs.
+- **Single token, stateless auth.** No user database. Token is set by the operator and compared in constant time.
+- **Restricted shell.** The browser terminal runs containerctl commands only — not arbitrary shell commands. The allowlist is fixed in code.
+- **Read flag from global context.** `serve` inherits `--file`, `--runtime`, `--socket`, and `--project` globals so it operates on the same stack as the rest of the CLI.
+
+---
+
+### 12.1 Command: `containerctl serve`
+
+```
+containerctl serve [flags]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen ADDR` | `:8080` | TCP address to listen on. |
+| `--token TOKEN` | — | **Required.** Shared auth token. Also read from `CONTAINERCTL_TOKEN` env var. If neither flag nor env is set, `serve` fails with an error. |
+| `--tls MODE` | `none` | TLS mode: `none`, `self-signed`, `letsencrypt`, or `custom`. |
+| `--tls-domain DOMAIN` | — | Public domain for Let's Encrypt. Required when `--tls=letsencrypt`. |
+| `--tls-cert PATH` | — | Certificate file path. Required when `--tls=custom`. |
+| `--tls-key PATH` | — | Key file path. Required when `--tls=custom`. |
+| `--tls-cache-dir DIR` | `$XDG_DATA_HOME/containerctl/certs` | Let's Encrypt cert cache directory. |
+| `--session-ttl DURATION` | `24h` | How long a login session stays valid. |
+
+Startup sequence:
+
+1. Validate token is present (fail fast if missing).
+2. Configure TLS (generate/load cert based on mode).
+3. Print the listen address and TLS mode to stderr.
+4. Block serving until interrupted (SIGINT/SIGTERM triggers graceful shutdown with 10 s timeout).
+
+---
+
+### 12.2 TLS modes
+
+| Mode | How it works |
+|------|-------------|
+| `none` | Plain HTTP via `http.ListenAndServe`. Safe when behind a TLS-terminating reverse proxy. |
+| `self-signed` | Generate an ECDSA P-256 cert + key in memory at startup. Cert is valid for 10 years and SANs `localhost` plus the machine's non-loopback IPs. Logged to stderr so users can pin it. Browser will show a security warning — expected. |
+| `letsencrypt` | `golang.org/x/crypto/acme/autocert` with `DirCache` at `--tls-cache-dir`. Requires `--tls-domain`. `autocert.Manager` also starts the HTTP-01 challenge responder on `:80`. Fails to start if `:80` is not bindable (print actionable error). |
+| `custom` | `http.ListenAndServeTLS` with operator-supplied cert/key paths. Reloads cert on SIGHUP. |
+
+Self-signed cert generation (in `internal/web/tls.go`):
+
+```go
+func generateSelfSigned() (tls.Certificate, error) {
+    key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+    tmpl := &x509.Certificate{
+        SerialNumber: big.NewInt(1),
+        NotBefore:    time.Now(),
+        NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
+        KeyUsage:     x509.KeyUsageDigitalSignature,
+        ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+        IPAddresses:  localIPs(), // all non-loopback IPs + 127.0.0.1
+        DNSNames:     []string{"localhost"},
+    }
+    der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+    return tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+        marshalECKey(key))
+}
+```
+
+---
+
+### 12.3 HTTP routes
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/` | — | Redirect to `/terminal` if session cookie valid, else redirect to `/login`. |
+| `GET` | `/login` | — | Login page (static HTML). |
+| `POST` | `/login` | — | Validate token (form field `token`). On success: create session, set cookie, redirect to `/terminal`. On failure: re-render login with error. |
+| `POST` | `/logout` | session | Delete session, redirect to `/login`. |
+| `GET` | `/terminal` | session | Web terminal page (static HTML). |
+| `GET` | `/ws/terminal` | session | WebSocket: interactive containerctl terminal. |
+| `GET` | `/ws/exec` | session | WebSocket: PTY-based interactive exec session inside a container. Requires `serve.exec.enabled: true`. |
+| `GET` | `/ws/logs` | session | WebSocket: streaming container logs (query params: `?name=<name>&follow=true&tail=N&file=<path>`). |
+| `GET` | `/api/v1/status` | session | JSON array of container status entries (same data as `containerctl status --output json`). |
+| `GET` | `/api/v1/file` | session | Read a file: returns content + ETag header (sha256 of content). |
+| `PUT` | `/api/v1/file` | session | Write a file: requires `If-Match` header matching the current ETag; returns 409 Conflict if the file changed since the read. |
+| `GET` | `/static/*` | — | Embedded static assets (CSS, JS, fonts). |
+
+All session-protected routes return `302 /login` (not 401) for browser navigation. `/api/v1/*` and `/ws/*` return `401 {"error":"unauthenticated"}` when session is missing.
+
+---
+
+### 12.4 Session management
+
+- Sessions live in an in-memory `sync.Map` — not persisted across restarts.
+- Session ID: 32 bytes from `crypto/rand`, hex-encoded (64 chars).
+- Cookie name: `containerctl_session`. Attributes: `HttpOnly; SameSite=Strict; Path=/`. `Secure` flag added when TLS mode is not `none`.
+- TTL enforced at read time: expired sessions are treated as absent and lazily reaped.
+- Token comparison: `subtle.ConstantTimeCompare` to prevent timing attacks.
+- **Brute-force protection**: per-IP failure tracking. After 5 consecutive failed login attempts the IP is blocked for 30 seconds. The login page shows a countdown timer and disables the form during the block. Block resets after the 30 s window expires. The client IP is read from the `X-Forwarded-For` header when present.
+
+```go
+type session struct {
+    createdAt time.Time
+}
+
+type sessionStore struct {
+    ttl      time.Duration
+    sessions sync.Map // map[string]*session
+    failMu   sync.Mutex
+    failures map[string]*loginAttempt
+}
+
+func (s *sessionStore) validateLogin(ip, token string) (ok, blocked bool, retryAfter time.Duration)
+func (s *sessionStore) create() string { /* crypto/rand ID */ }
+func (s *sessionStore) valid(id string) bool { /* lookup + TTL check */ }
+func (s *sessionStore) delete(id string) { s.sessions.Delete(id) }
+```
+
+---
+
+### 12.5 WebSocket terminal protocol (`/ws/terminal`)
+
+The WebSocket connection represents one interactive session. It carries per-connection state: the active stack file (defaults to the server's `--file`, changeable with `use`).
+
+**Client → Server message (JSON):**
+
+```json
+{"cmd": "status"}
+{"cmd": "logs nginx --follow"}
+{"cmd": "apply"}
+{"cmd": "__interrupt__"}
+```
+
+`__interrupt__` cancels the currently running command (maps to Ctrl+C).
+
+**Server → Client messages (JSON):**
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `output` | `data` | Text to write to the terminal. May be partial lines or multi-line chunks. |
+| `done` | `code` | Command completed. `code` is the exit code (0 = success). Always follows the last `output`. |
+| `error` | `msg` | Error message shown in red. Follows immediately for validation errors; replaces `done` when a bad command is typed. |
+| `clear` | — | Clear the terminal (client calls `term.clear()`). |
+| `prompt` | `data` | New prompt string to display, e.g. `containerctl [stack.yaml]> `. Sent on connect and whenever `use` changes the active file. |
+| `names` | `names` | Updated list of container logical names for Tab completion. Sent on connect and after `use`. |
+| `edit` | `data` | Absolute path of the file the browser editor should open. |
+| `exec_open` | `data` | URL-encoded query string for the `/ws/exec` connection the client should open. |
+
+- While a command is running, a new command is rejected with `{"type":"error","msg":"command already running"}`.
+- `--follow` on `logs` streams until the client closes the WebSocket or sends any message (acts as interrupt).
+
+---
+
+### 12.6 Command dispatch (allowlist)
+
+The terminal does **not** execute arbitrary shell commands. Input is parsed and the first word matched against a fixed allowlist. Recognised commands are dispatched as containerctl subprocesses — the server runs the same `containerctl` binary pointed to by `os.Executable()`, injecting global flags (`--file`, `--runtime`, `--socket`, `--project`) before the user's arguments.
+
+**Per-command `--file` override:** if the user includes `--file` or `-f` in their command, the server does not inject its own `--file`. This lets users target a different stack for a single command without changing the active session file.
+
+**`use` changes the session's active stack:** `use /path/to/other.yaml` updates the per-connection active file. All subsequent commands without an explicit `--file` use the new path. The prompt and Tab completion list update immediately.
+
+Allowed commands:
+
+| User input | Dispatch |
+|-----------|----------|
+| `apply [name...]` | subprocess |
+| `check-update [name...] [--apply]` | subprocess |
+| `clear` | built-in: sends `{"type":"clear"}` |
+| `diff [name...]` | subprocess |
+| `disable <name...>` | subprocess |
+| `down [name...]` | subprocess |
+| `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |
+| `enable <name...>` | subprocess |
+| `exec <name> [cmd...]` | see below |
+| `help [command]` | built-in or subprocess (`<cmd> --help`) |
+| `logs <name> [--follow] [--tail N]` | subprocess |
+| `pull [name...]` | subprocess |
+| `restart [name...] [--all]` | subprocess |
+| `start [name...] [--all]` | subprocess |
+| `status [name...]` | subprocess |
+| `stop [name...] [--all]` | subprocess |
+| `upgrade <name>` | subprocess |
+| `use <path>` | built-in: updates session's active file |
+| `version` | subprocess |
+
+Any other input: `{"type":"error","msg":"unknown command \"<input>\"; type help for available commands"}`.
+
+**`exec` dispatch rules:** `exec` is gated by `serve.exec.enabled`. When disabled, all exec invocations are rejected with an error message. When enabled, the container name is additionally checked against `serve.exec.allowed` (if non-empty). Interactive shell invocations (bare `bash`/`sh`/`zsh` etc. without `-c`) are routed to a dedicated PTY-based WebSocket (`/ws/exec`) via `{"type":"exec_open","data":"<query-params>"}`. Non-interactive invocations (e.g. `exec myapp ps aux`) run as a regular subprocess.
+
+Tab completion is seeded by the server at connect time: the server runs `containerctl status --output json` and sends `{"type":"names","names":[...]}`. The list refreshes after every `use` command.
+
+---
+
+### 12.7 `/ws/exec` WebSocket
+
+Dedicated endpoint for PTY-based interactive exec sessions (shells, vim, etc.) inside a container.
+
+**Query params (all required unless noted):**
+
+| Param | Description |
+|-------|-------------|
+| `name` | Logical container name. Rejected if not in the exec allowlist. |
+| `file` | Absolute path to the active stack file (passed by the terminal session). |
+| `cmd` | Space-separated command (optional; defaults to `/bin/sh`). |
+| `rows` | Initial terminal rows (used with `pty.StartWithSize` so vi/vim opens full-screen). |
+| `cols` | Initial terminal columns. |
+
+**Client → Server (JSON):**
+
+```json
+{"type": "input",  "data": ""}
+{"type": "resize", "rows": 40, "cols": 160}
+```
+
+**Server → Client (JSON):**
+
+```json
+{"type": "output", "data": "...raw PTY bytes..."}
+{"type": "done",   "code": 0}
+```
+
+The PTY is started with `pty.StartWithSize` so the subprocess sees the correct terminal dimensions from its first `TIOCGWINSZ` call. Window resize messages are forwarded via `pty.Setsize`. When the subprocess exits, the server sends `{"type":"done","code":N}` and closes the WebSocket.
+
+---
+
+### 12.8 `/ws/logs` WebSocket
+
+Dedicated endpoint for following a single container's log stream (mirrors `containerctl logs --follow`).
+
+- Query params: `?name=<logical-name>` (required), `?follow=true`, `?tail=N`, `?file=<path>` (optional; falls back to server default).
+- Server messages: `{"type":"output","data":"..."}` (raw log line with optional timestamp).
+- Server sends `{"type":"done","code":N}` when the stream ends.
+- Client closes WebSocket to stop streaming; any inbound message also interrupts the stream.
+
+---
+
+### 12.9 `/api/v1/file` — File read/write
+
+Supports reading and writing the active stack file from the browser editor with optimistic concurrency control.
+
+**GET `/api/v1/file?path=<absolute-path>`**
+
+Returns the file content as plain text. The response includes an `ETag` header set to the sha256 hex digest of the content. Clients store this ETag and present it on the subsequent write.
+
+**PUT `/api/v1/file?path=<absolute-path>`** with body = new file content and header `If-Match: <etag>`
+
+Reads the current file, recomputes its sha256, and compares with `If-Match`. If they match: writes the new content and returns 200. If they differ (another client wrote in the meantime): returns 409 Conflict with `{"error":"conflict"}`. The browser editor shows a red warning and preserves the user's unsaved edits so no work is lost.
+
+Only absolute paths that resolve to real files are accepted (`400` otherwise). The server does not restrict which files may be edited in v1; operators should rely on filesystem permissions and the session token for access control.
+
+---
+
+### 12.10 `/api/v1/status` JSON response
+
+Returns the same data as `containerctl status --output json`. Shape:
+
+```json
+[
+  {
+    "name":    "postgres",
+    "state":   "running",
+    "image":   "postgres:16",
+    "uptime":  "4d 2h",
+    "drift":   false,
+    "drift_fields": []
+  },
+  {
+    "name":    "nginx",
+    "state":   "running",
+    "image":   "nginx:1.27",
+    "uptime":  "4d 2h",
+    "drift":   true,
+    "drift_fields": ["image", "env"]
+  }
+]
+```
+
+This is a polling endpoint — there is no push/SSE for the status panel in v1.
+
+---
+
+### 12.11 Frontend
+
+Embedded pages served via `//go:embed` from `internal/web/assets/`.
+
+**Login page (`login.html`):**
+
+- Centered card: "containerctl" heading, single `<input type="password" name="token">` field, submit button.
+- Error rendering: `?error=blocked&sec=N` shows a countdown timer and disables the form during the block window; `?error=1` shows "Invalid token".
+- JavaScript countdown re-enables the form when the block expires.
+- Minimal CSS: dark background, monospace font.
+
+**Terminal page (`terminal.html`):**
+
+- Full-viewport dark terminal rendered by xterm.js v5.3.0 + FitAddon (embedded assets, not CDN).
+- **Top bar:** project title on the left; exec badge (amber, shown only during exec sessions) in the middle; Logout button pushed to the right.
+- **Dynamic prompt:** set by the `prompt` server message. Default `containerctl [stack.yaml]> ` (basename of active file). Updates after `use`.
+- **Tab completion:** two-level. First Tab shows completions; second Tab cycles. Completes: command names (from `ALL_CMDS`) and container names (from the `names` server message). Also completes command flags when the partial input matches a command.
+- **Command history:** up/down arrow recalls previous commands (client-side JS array, not sent to server).
+- **Exec mode:** when the server sends `exec_open`, the client opens `/ws/exec` as a second WebSocket. While open: `term.onData` forwards all keystrokes and paste events to the PTY; `term.onKey` is suppressed; the top bar shows an amber badge with container name and command; the border turns amber. An "Exit" button sends Ctrl+D. On exec WS close, the client sends `{"type":"resize",…}` to restore the terminal to its current dimensions and re-renders the main prompt.
+- **Browser editor (`edit` command):** full-screen overlay using CodeMirror 5 with vim keymap and YAML syntax highlighting. Crosshair (horizontal active-line + vertical column highlight via CSS `--cur-x` variable). Status bar shows vim mode (NORMAL/INSERT/VISUAL) and cursor position. Keys: `:w` / `Ctrl+S` save; `:wq` / `:x` save+quit; `:q` quit (blocked with unsaved changes); `:q!` / `Ctrl+Q` force-quit discarding changes. Ex-commands require the CodeMirror dialog addon (`codemirror-dialog.js`) which is loaded before the vim keymap. ETag-based concurrent edit protection: 409 from the server shows a red "conflict" warning; unsaved edits are preserved.
+- **`clear` message:** calls `term.clear()`.
+
+**Static assets build step:**
+
+```makefile
+build: $(ASSETS)
+    go build ...
+
+$(ASSETS):  # each asset is a Makefile file target downloaded only if missing
+    curl -fsSL <cdn-url> -o <path>
+```
+
+Downloaded assets (xterm.js, xterm.css, xterm-addon-fit.js, codemirror.js, codemirror.css, codemirror-dialog.js, codemirror-dialog.css, codemirror-vim.js, codemirror-yaml.js) are listed in `.gitignore`. `make build` downloads any missing assets automatically, so the build is self-contained. `make assets` force-refreshes all assets from the CDN.
+
+---
+
+### 12.12 Package layout additions
+
+```
+cmd/
+  serve.go              # cobra command; flag parsing, server startup
+internal/
+  web/
+    server.go           # http.Server setup, route registration, graceful shutdown, Config struct
+    auth.go             # token validation (constant-time), sessionStore, per-IP rate limiting
+    handlers.go         # login/logout/terminal page/status API/file read-write handlers
+    terminal.go         # /ws/terminal and /ws/exec WebSocket handlers, command dispatch
+    tls.go              # generateSelfSigned(), autocert setup
+    assets/             # embedded static files (go:embed target)
+      login.html
+      terminal.html
+      style.css
+      xterm.js          # downloaded by make build/assets if missing
+      xterm.css         # downloaded
+      xterm-addon-fit.js
+      codemirror.js          # downloaded
+      codemirror.css
+      codemirror-dialog.js   # downloaded; required by vim keymap for ex-commands (:w, :q, etc.)
+      codemirror-dialog.css
+      codemirror-vim.js
+      codemirror-yaml.js
+```
+
+`internal/web` dispatches via subprocess (`os.Executable()` + `exec.CommandContext`) rather than importing internal packages directly. This keeps the web layer thin and ensures CLI and web terminal behaviour are always identical.
+
+---
+
+### 12.13 Subprocess dispatch model
+
+The web terminal runs commands by invoking the same `containerctl` binary that is currently running (resolved via `os.Executable()` with symlink dereferencing). This avoids any writer-injection refactor and guarantees that CLI and web-terminal behaviour are always identical.
+
+For each command:
+
+1. Parse the user's input into `(name, args)`.
+2. Build global flags: `--file <activeFile>` (omitted if user already supplied `-f/--file`), `--runtime`, `--socket`, `--project`.
+3. Run `exec.CommandContext(ctx, executable, globalFlags..., args...)` with a combined stdout+stderr pipe.
+4. Stream pipe output as `{"type":"output","data":"..."}` messages.
+5. On exit: send `{"type":"done","code":N}`.
+
+Cancellation via `__interrupt__` cancels the `context.Context`, which kills the subprocess via `SIGKILL` (Go default). Exit code 130 is used for interrupted commands.
+
+---
+
+### 12.14 New dependencies
+
+| Package | Reason |
+|---------|--------|
+| `github.com/gorilla/websocket` | WebSocket server. More complete than `golang.org/x/net/websocket` (ping/pong, close frames, concurrent writes). |
+| `golang.org/x/crypto` | `acme/autocert` for Let's Encrypt. Already a transitive dep; add to `require` directly. |
+| `github.com/creack/pty` | Allocate a PTY and start a subprocess inside it (`pty.StartWithSize`). Required for exec sessions that need a real TTY (interactive shells, vim, etc.). |
+
+Frontend JS (xterm.js, CodeMirror) is downloaded at build time and embedded — no Go module dependency.
+
+---
+
+### 12.15 Security considerations
+
+- Token must be treated as a secret. Recommend: long random string (32+ chars), set via env var (`CONTAINERCTL_TOKEN`) rather than CLI flag to avoid shell history exposure.
+- Token comparison is constant-time via `crypto/subtle`.
+- Session cookie is `HttpOnly` (not readable by JS) and `SameSite=Strict` (CSRF protection).
+- **Login brute-force protection:** after 5 consecutive failures from the same IP, that IP is blocked for 30 s. Counts reset after a successful login.
+- The terminal allowlist eliminates arbitrary command injection — user input is parsed and only recognised commands are dispatched.
+- **`exec` is opt-in and double-gated:** `serve.exec.enabled: true` must be set in stack.yaml AND the container name must be in the allowlist (if `allowed` is non-empty). Exec gives full shell access to the container, so it must be deliberately enabled.
+- **`edit` and `use` are opt-in** (see `serve.edit.enabled` / `serve.use.enabled`): the editor writes to files on disk; `use` allows browsing other stacks. Both default to disabled for minimal-privilege deployments.
+- WebSocket origin check: the server compares the `Origin` header against the request `Host`; cross-origin WebSocket upgrades are rejected.
+- When `--tls=none`, the operator is responsible for TLS termination at the reverse proxy. A startup warning is printed to stderr.
+- Client IP is read from `X-Forwarded-For` when present (for rate limiting behind a proxy). Operators should ensure untrusted clients cannot spoof this header.
+
+---
+
+### 12.16 Example usage
+
+**stack.yaml:**
+
+```yaml
+project: home-services
+runtime: docker
+
+serve:
+  exec:
+    enabled: true
+    allowed:       # omit or empty = all containers permitted
+      - app
+      - debug
+  edit:
+    enabled: true  # allow browser editor for the stack file
+  use:
+    enabled: false # prevent switching to other stack files from the browser
+```
+
+**Starting the server:**
+
+```bash
+# Plain HTTP (behind nginx/caddy proxy)
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --listen :9090 --file stack.yaml
+
+# Self-signed HTTPS (LAN access, browser warning expected)
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
+  --listen :9090 --tls self-signed --file stack.yaml
+
+# Let's Encrypt (publicly reachable server)
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
+  --listen :443 --tls letsencrypt --tls-domain containerctl.example.com --file stack.yaml
+```
+
+**Browser session flow:**
+
+1. Navigate to `https://<host>:9090` → redirected to `/login`.
+2. Enter token → session cookie set → redirected to `/terminal`.
+3. Prompt shows `containerctl [stack.yaml]> `.
+4. Type `status` → output streams to terminal.
+5. Type `logs nginx --follow` → log lines stream; press Enter to stop.
+6. Type `exec app bash` → amber PTY session opens in the same terminal; type `exit` or press Ctrl+D to return.
+7. Type `edit` → full-screen CodeMirror editor opens; `:w` saves, `:q` closes.
+8. Type `use /other/stack.yaml` → prompt updates to `containerctl [other-stack.yaml]> `.
+9. Click Logout → session cleared → redirected to `/login`.
 
 ---
 

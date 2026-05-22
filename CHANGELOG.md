@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `group_add` field in `stack.yaml` — adds supplementary GIDs to the container process without changing the user or primary group. Accepts a list of group IDs or names (e.g. `["1500", "docker"]`). Changes are included in the config hash and trigger recreation on `apply`.
 - `exec <name> [command...]` — run a command inside a running container. Defaults to `/bin/sh`. Allocates a PTY and sets raw terminal mode when stdin is a terminal; window resize is forwarded automatically. Non-TTY invocations (piped stdin) run without a PTY.
 - `start --follow` and `restart --follow` stream container logs immediately after the container is running. Requires a single container name (not compatible with `--all` or multiple names).
+- `serve` — starts an HTTP/HTTPS web server exposing a browser-based management terminal. After authenticating with a shared token, the browser session can run all containerctl subcommands. Supports plain HTTP, self-signed TLS, Let's Encrypt, and custom cert/key.
+- `serve` brute-force login protection: 5 consecutive failures from the same IP trigger a 30-second block with a browser-side countdown timer.
+- `serve` browser terminal tab-completion for command names, container names, and per-command flags.
+- `serve` command history (up/down arrow) per browser session.
+- `serve` browser exec sessions: `exec <container> [command]` opens a full PTY-based interactive shell in the browser terminal. Gated by `serve.exec.enabled: true` in `stack.yaml`; an optional `serve.exec.allowed` list restricts which containers may be exec'd into. Both interactive and non-interactive `exec` invocations are blocked when disabled.
+- `serve` browser stack file editor: `edit` opens the active stack file in a full-screen CodeMirror editor with vim keybindings and YAML syntax highlighting. Keys: `:w`/`Ctrl+S` save; `:wq`/`:x` save+quit; `:q` quit; `:q!`/`Ctrl+Q` force-quit. Concurrent edit protection via ETag — 409 Conflict preserves unsaved edits. Gated by `serve.edit.enabled: true`.
+- `serve` `use <path>` terminal command switches the active stack file for the current browser session without restarting the server. The prompt updates to show the new stack basename. Gated by `serve.use.enabled: true`.
+- `serve` per-command `--file` override: if the user includes `--file` or `-f` in a terminal command, the server uses that path instead of injecting the session default.
+- `serve.exec.enabled`, `serve.exec.allowed`, `serve.edit.enabled`, `serve.use.enabled` fields in `stack.yaml` — opt-in gates for web terminal features. All default to disabled for minimal-privilege deployments.
 
 ### Fixed
 - `exec` no longer leaves the terminal in raw mode (invisible input) after the container exits with a non-zero code. `os.Exit` bypasses deferred functions; the terminal state is now restored explicitly before exit.

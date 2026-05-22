@@ -88,8 +88,55 @@ containerctl status    # see running state and sync status
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
 | `logs <name> [--follow] [--tail N]` | Stream container logs. |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
+| `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
 Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color`, `-v`.
+
+### Web terminal (`serve`)
+
+`containerctl serve` starts an HTTP/HTTPS server with a browser-based terminal. After logging in with a shared token, the browser session behaves like the CLI.
+
+```bash
+# Plain HTTP (behind a TLS-terminating proxy)
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --listen :9090 --file stack.yaml
+
+# Self-signed HTTPS (LAN, browser warning expected)
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --tls self-signed --file stack.yaml
+
+# Let's Encrypt
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
+  --tls letsencrypt --tls-domain containerctl.example.com --file stack.yaml
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen ADDR` | `:8080` | TCP address to listen on. |
+| `--token TOKEN` | — | Required. Also read from `CONTAINERCTL_TOKEN` env var. |
+| `--tls MODE` | `none` | `none` \| `self-signed` \| `letsencrypt` \| `custom` |
+| `--tls-domain DOMAIN` | — | Public domain (required for `letsencrypt`). |
+| `--tls-cert PATH` | — | Certificate file (required for `custom`). |
+| `--tls-key PATH` | — | Key file (required for `custom`). |
+| `--session-ttl DURATION` | `24h` | Session validity duration. |
+
+**Browser features:**
+
+- All `containerctl` commands available in the browser terminal.
+- Tab-completes command names and container names.
+- `edit` — opens the active stack file in a full-screen vim-style editor (YAML syntax highlighting, vim keybindings, concurrent-edit protection). Keys: `:w` / `Ctrl+S` save · `:wq` / `:x` save+quit · `:q` quit · `:q!` / `Ctrl+Q` force-quit. Requires `serve.edit.enabled: true`.
+- `use /path/to/other-stack.yaml` — switch the active stack file for the current session without restarting the server. Requires `serve.use.enabled: true`.
+- `exec <container> bash` — opens a full interactive PTY session in the browser. Requires `serve.exec.enabled: true`.
+- Login brute-force protection: 5 failures → 30-second block with countdown timer.
+
+**Exec from the browser** is opt-in because it gives full shell access to the container. Enable it in `stack.yaml`:
+
+```yaml
+serve:
+  exec:
+    enabled: true
+    allowed:        # omit or leave empty to permit all containers
+      - myapp
+      - debug-sidecar
+```
 
 ### exec
 
@@ -245,6 +292,15 @@ runtime: docker|podman   # optional. Default: docker.
 socket: string           # optional. Override socket path. If set, runtime type is optional.
 data_path: string        # optional. Base dir for relative volume and env_file paths.
 auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
+
+serve:                   # optional. Controls "containerctl serve" behaviour.
+  exec:
+    enabled: false       # set true to allow exec commands.
+    allowed: []          # container names permitted for exec; empty = all allowed.
+  edit:
+    enabled: false       # set true to allow the browser stack file editor.
+  use:
+    enabled: false       # set true to allow switching stacks with the "use" command.
 
 networks:
   - name: string         # required.

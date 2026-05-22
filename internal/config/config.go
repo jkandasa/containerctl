@@ -8,6 +8,47 @@ type Stack struct {
 	AuthFile   string      `yaml:"auth_file,omitempty"`
 	Networks   []Network   `yaml:"networks,omitempty"`
 	Containers []Container `yaml:"containers"`
+	Serve      ServeConfig `yaml:"serve,omitempty"`
+}
+
+// ServeConfig controls behaviour of the "containerctl serve" web terminal.
+// It is read once at server startup from the active stack file.
+type ServeConfig struct {
+	Exec ExecServeConfig   `yaml:"exec,omitempty"`
+	Edit SimpleServeConfig `yaml:"edit,omitempty"`
+	Use  SimpleServeConfig `yaml:"use,omitempty"`
+}
+
+// ExecServeConfig controls whether the web terminal may open interactive
+// shell sessions inside containers and which containers are permitted.
+//
+//	serve:
+//	  exec:
+//	    enabled: true
+//	    allowed:       # omit or leave empty to permit all containers
+//	      - myapp
+//	      - debug
+type ExecServeConfig struct {
+	// Enabled must be true to allow any exec command. Disabled by default
+	// because exec gives full shell access to the container.
+	Enabled bool `yaml:"enabled"`
+
+	// Allowed is an optional allowlist of container names. When empty every
+	// container may be exec'd into. When non-empty only the listed names are
+	// permitted.
+	Allowed []string `yaml:"allowed,omitempty"`
+}
+
+// SimpleServeConfig is a minimal on/off gate for browser features such as
+// the stack file editor and the "use" stack-switch command.
+//
+//	serve:
+//	  edit:
+//	    enabled: true
+//	  use:
+//	    enabled: false
+type SimpleServeConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type Network struct {

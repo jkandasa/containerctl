@@ -3,3 +3,14 @@ dist/
 *.env
 stack.yaml
 data/
+
+# third-party web assets (fetched by make build / make assets)
+internal/web/assets/xterm.js
+internal/web/assets/xterm.css
+internal/web/assets/xterm-addon-fit.js
+internal/web/assets/codemirror.js
+internal/web/assets/codemirror.css
+internal/web/assets/codemirror-dialog.js
+internal/web/assets/codemirror-dialog.css
+internal/web/assets/codemirror-vim.js
+internal/web/assets/codemirror-yaml.js

@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>containerctl · terminal</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/xterm.css" onerror="this.remove()">
+
+  <!-- init() and loadCDN() must be defined BEFORE the xterm.js script tag
+       so that onerror="loadCDN()" can call it when /static/xterm.js is absent. -->
+  <script>
+    function loadCDN() {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css';
+      document.head.appendChild(css);
+
+      const s1 = document.createElement('script');
+      s1.src = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js';
+      s1.onload = function () {
+        const s2 = document.createElement('script');
+        s2.src = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js';
+        s2.onload = init;
+        document.head.appendChild(s2);
+      };
+      document.head.appendChild(s1);
+    }
+
+    // All known containerctl commands for tab completion.
+    const ALL_CMDS = [
+      'apply', 'check-update', 'clear', 'diff', 'disable', 'down',
+      'edit', 'enable', 'exec', 'help', 'logs', 'pull', 'restart',
+      'start', 'status', 'stop', 'upgrade', 'use', 'version',
+    ];
+
+    // Per-command flags (command-specific only; global flags always appended).
+    const CMD_FLAGS = {
+      'apply':        [],
+      'check-update': ['--apply'],
+      'clear':        [],
+      'diff':         [],
+      'disable':      [],
+      'down':         [],
+      'edit':         [],
+      'enable':       [],
+      'exec':         [],
+      'help':         [],
+      'logs':         ['--follow', '--tail'],
+      'pull':         [],
+      'restart':      ['--all'],
+      'start':        ['--all'],
+      'status':       ['--stats', '--watch', '--interval'],
+      'stop':         ['--all'],
+      'upgrade':      [],
+      'use':          [],
+      'version':      [],
+    };
+
+    // Global flags available on every command.
+    const GLOBAL_FLAGS = [
+      '--file', '--no-color', '--output', '--project', '--runtime', '--socket', '--verbose',
+    ];
+
+    // ── CodeMirror lazy loader ──────────────────────────────────────────────────
+    const CM_VER  = '5.65.17';
+    const CM_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/' + CM_VER;
+
+    let cmReady = false;
+    let cmCallbacks = [];
+
+    function ensureCodeMirror(cb) {
+      if (cmReady) { cb(); return; }
+      cmCallbacks.push(cb);
+      if (cmCallbacks.length > 1) return;
+
+      function tryLoad(local, cdn, onload) {
+        const el = document.createElement('script');
+        el.src = local;
+        el.onload = onload;
+        el.onerror = function () {
+          el.remove();
+          const el2 = document.createElement('script');
+          el2.src = cdn;
+          el2.onload = onload;
+          document.head.appendChild(el2);
+        };
+        document.head.appendChild(el);
+      }
+
+      function tryCSS(local, cdn) {
+        const el = document.createElement('link');
+        el.rel = 'stylesheet';
+        el.href = local;
+        el.onerror = function () { el.href = cdn; };
+        document.head.appendChild(el);
+      }
+
+      tryCSS('/static/codemirror.css',        CM_BASE + '/codemirror.min.css');
+      tryCSS('/static/codemirror-dialog.css', CM_BASE + '/addon/dialog/dialog.min.css');
+
+      // Sequential: core → dialog (required by vim) → vim → yaml → done
+      tryLoad('/static/codemirror.js', CM_BASE + '/codemirror.min.js', function () {
+        tryLoad('/static/codemirror-dialog.js', CM_BASE + '/addon/dialog/dialog.min.js', function () {
+          tryLoad('/static/codemirror-vim.js', CM_BASE + '/keymap/vim.min.js', function () {
+            tryLoad('/static/codemirror-yaml.js', CM_BASE + '/mode/yaml/yaml.min.js', function () {
+              cmReady = true;
+              cmCallbacks.forEach(function (fn) { fn(); });
+              cmCallbacks = [];
+            });
+          });
+        });
+      });
+    }
+
+    // ── xterm init ─────────────────────────────────────────────────────────────
+    function init() {
+      const fitAddon = new FitAddon.FitAddon();
+      const term = new Terminal({
+        cursorBlink: true,
+        convertEol:  true,
+        scrollback:  5000,
+        fontFamily:  'Menlo, Monaco, "Courier New", monospace',
+        fontSize:    14,
+        theme: {
+          background:          '#0d1117',
+          foreground:          '#e6edf3',
+          cursor:              '#79c0ff',
+          cursorAccent:        '#0d1117',
+          selectionBackground: '#264f78',
+          black:   '#0d1117', brightBlack:   '#6e7681',
+          red:     '#ff7b72', brightRed:     '#ffa198',
+          green:   '#3fb950', brightGreen:   '#56d364',
+          yellow:  '#d29922', brightYellow:  '#e3b341',
+          blue:    '#79c0ff', brightBlue:    '#a5d6ff',
+          magenta: '#bc8cff', brightMagenta: '#d2a8ff',
+          cyan:    '#39d353', brightCyan:    '#56d364',
+          white:   '#e6edf3', brightWhite:   '#ffffff',
+        },
+      });
+
+      term.loadAddon(fitAddon);
+      const container = document.getElementById('terminal-container');
+      term.open(container);
+      fitAddon.fit();
+      term.focus();
+
+      window.addEventListener('resize', function () {
+        fitAddon.fit();
+        if (execMode && execWs && execWs.readyState === WebSocket.OPEN) {
+          execWs.send(JSON.stringify({ type: 'resize', rows: term.rows, cols: term.cols }));
+        }
+      });
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(proto + '//' + location.host + '/ws/terminal');
+
+      let line    = '';
+      let running = false;
+      const history = [];
+      let histIdx = -1;
+      let PROMPT         = 'containerctl> ';
+      let containerNames = [];
+      let activeFilePath = '';
+
+      function writePrompt() {
+        term.write('\r\n' + PROMPT);
+        running = false;
+      }
+
+      function clearCurrentLine() {
+        term.write('\r' + PROMPT + ' '.repeat(line.length) + '\r' + PROMPT);
+      }
+
+      // ── Tab completion ────────────────────────────────────────────────────────
+
+      function tabComplete() {
+        const parts   = line.split(' ');
+        const current = parts[parts.length - 1];
+
+        let candidates;
+        if (parts.length <= 1) {
+          candidates = ALL_CMDS;
+        } else if (current.startsWith('-')) {
+          const cmd      = parts[0];
+          const specific = CMD_FLAGS[cmd] || [];
+          const all      = specific.concat(GLOBAL_FLAGS);
+          const used     = parts.slice(1, -1).filter(function (p) { return p.startsWith('-'); });
+          candidates     = all.filter(function (f) { return used.indexOf(f) === -1; });
+        } else {
+          candidates = containerNames;
+        }
+
+        applyCompletion(candidates, current);
+      }
+
+      function applyCompletion(candidates, prefix) {
+        const matches = candidates.filter(function (c) { return c.startsWith(prefix); });
+        if (matches.length === 0) return;
+        if (matches.length === 1) {
+          const tail = matches[0].slice(prefix.length);
+          line += tail;
+          term.write(tail);
+        } else {
+          term.write('\r\n' + matches.join('  '));
+          term.write('\r\n' + PROMPT + line);
+        }
+      }
+
+      // ── Exec session ─────────────────────────────────────────────────────────
+
+      let execWs   = null;
+      let execMode = false;
+
+      const topbarEl   = document.getElementById('topbar');
+      const execBadge  = document.getElementById('exec-badge');
+      const execName   = document.getElementById('exec-badge-name');
+      const execCmd    = document.getElementById('exec-badge-cmd');
+      const execExitBtn = document.getElementById('exec-exit-btn');
+
+      function enterExecMode(containerName, cmd) {
+        execMode = true;
+        execName.textContent = containerName;
+        execCmd.textContent  = cmd;
+        execBadge.classList.remove('hidden');
+        topbarEl.classList.add('exec-mode');
+        // Single amber line so the user knows where the exec session starts.
+        term.write('\r\n\x1b[38;2;210;153;34m▶ exec: ' + containerName
+          + ' · ' + cmd
+          + '  —  Ctrl+D or exit to end session\x1b[0m\r\n');
+      }
+
+      function leaveExecMode() {
+        execMode = false;
+        execWs   = null;
+        execBadge.classList.add('hidden');
+        topbarEl.classList.remove('exec-mode');
+      }
+
+      function openExecSession(queryParams) {
+        const params        = new URLSearchParams(queryParams);
+        const containerName = params.get('name') || '';
+        const cmd           = params.get('cmd')  || 'sh';
+
+        params.set('rows', String(term.rows));
+        params.set('cols', String(term.cols));
+
+        execWs = new WebSocket(proto + '//' + location.host + '/ws/exec?' + params.toString());
+
+        execWs.onopen = function () {
+          enterExecMode(containerName, cmd);
+          // Belt-and-suspenders: confirm PTY size even though it was set via query params.
+          execWs.send(JSON.stringify({ type: 'resize', rows: term.rows, cols: term.cols }));
+        };
+
+        execWs.onmessage = function (event) {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'output') {
+            term.write(msg.data);
+          } else if (msg.type === 'done') {
+            term.write('\r\n\x1b[38;2;210;153;34m■ exec session ended'
+              + (msg.code ? ' (exit ' + msg.code + ')' : '') + '\x1b[0m');
+            leaveExecMode();
+            writePrompt();
+          } else if (msg.type === 'error') {
+            term.write('\r\n\x1b[31m' + msg.msg + '\x1b[0m');
+            leaveExecMode();
+            writePrompt();
+          }
+        };
+
+        execWs.onclose = function () {
+          if (execMode) {
+            term.write('\r\n\x1b[38;2;210;153;34m■ exec session closed\x1b[0m');
+            leaveExecMode();
+            writePrompt();
+          }
+        };
+
+        execWs.onerror = function () {
+          if (execMode) leaveExecMode();
+        };
+      }
+
+      // Exit button: sends Ctrl+D to gracefully close the shell.
+      execExitBtn.addEventListener('click', function () {
+        if (execWs && execWs.readyState === WebSocket.OPEN) {
+          execWs.send(JSON.stringify({ type: 'input', data: '\x04' }));
+        }
+      });
+
+      // Forward all terminal input (keyboard + paste) to the exec PTY when active.
+      // Using onData rather than onKey ensures paste events are captured too.
+      term.onData(function (data) {
+        if (execMode && execWs && execWs.readyState === WebSocket.OPEN) {
+          execWs.send(JSON.stringify({ type: 'input', data: data }));
+        }
+      });
+
+      // ── Editor overlay ────────────────────────────────────────────────────────
+
+      let editorInstance = null;
+      let editorFilePath = '';
+      let editorDirty    = false;
+      let editorETag     = '';
+
+      const overlay   = document.getElementById('editor-overlay');
+      const editorDiv = document.getElementById('editor-cm');
+      const fileLabel = document.getElementById('editor-filename');
+      const statusMsg = document.getElementById('editor-status');
+      const modeLabel = document.getElementById('vim-mode-label');
+      const posLabel  = document.getElementById('editor-pos');
+
+      function setStatus(msg, isError) {
+        statusMsg.textContent = msg;
+        statusMsg.className   = 'editor-status' + (isError ? ' editor-status-error' : '');
+      }
+
+      function openEditor(filePath) {
+        editorFilePath = filePath;
+        editorDirty    = false;
+        editorETag     = '';
+        fileLabel.textContent = filePath;
+        setStatus('Loading…', false);
+        overlay.classList.remove('hidden');
+
+        fetch('/api/v1/file?path=' + encodeURIComponent(filePath))
+          .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            editorETag = r.headers.get('ETag') || '';
+            return r.text();
+          })
+          .then(function (content) {
+            setStatus('', false);
+            ensureCodeMirror(function () { initEditor(content); });
+          })
+          .catch(function (err) { setStatus('Error: ' + err.message, true); });
+      }
+
+      function initEditor(content) {
+        editorDiv.innerHTML = '';
+
+        CodeMirror.Vim.defineEx('write', 'w', function () { saveEditor(false); });
+        CodeMirror.Vim.defineEx('quit',  'q', function (cm, params) {
+          closeEditor(!!(params && params.bang));
+        });
+        CodeMirror.Vim.defineEx('wq', '', function () { saveEditor(true); });
+        CodeMirror.Vim.defineEx('x',  '', function () { saveEditor(true); });
+
+        editorInstance = CodeMirror(editorDiv, {
+          value:           content,
+          mode:            'yaml',
+          keyMap:          'vim',
+          lineNumbers:     true,
+          styleActiveLine: true,
+          matchBrackets:   true,
+          indentUnit:      2,
+          tabSize:         2,
+          indentWithTabs:  false,
+          lineWrapping:    false,
+          autofocus:       true,
+          extraKeys: {
+            'Ctrl-S': function () { saveEditor(false); },
+            'Ctrl-Q': function () { closeEditor(true); },
+            'Esc': function (cm) {
+              if (cm.state.vim && cm.state.vim.insertMode) return CodeMirror.Pass;
+            },
+          },
+        });
+
+        editorInstance.on('change', function () { editorDirty = true; });
+        editorInstance.on('cursorActivity', function () { updateCrosshair(); updatePos(); });
+
+        let lastMode = '';
+        const modeTimer = setInterval(function () {
+          if (!editorInstance) { clearInterval(modeTimer); return; }
+          const vim = editorInstance.state.vim;
+          if (!vim) return;
+          let mode = 'NORMAL';
+          if (vim.insertMode)                     mode = 'INSERT';
+          if (vim.visualMode) mode = vim.visualLine ? 'V-LINE' : 'VISUAL';
+          if (mode !== lastMode) {
+            lastMode = mode;
+            modeLabel.textContent = mode;
+            modeLabel.className   = 'vim-mode vim-mode-' + mode.replace('-', '').toLowerCase();
+          }
+        }, 50);
+
+        updatePos();
+        updateCrosshair();
+        editorInstance.focus();
+        // Focus the underlying <textarea> so browser extensions (e.g. Vimium)
+        // correctly identify this as a text input and stop intercepting keys.
+        editorInstance.getInputField().focus();
+      }
+
+      function updatePos() {
+        if (!editorInstance) return;
+        const c = editorInstance.getCursor();
+        posLabel.textContent = 'Ln ' + (c.line + 1) + ', Col ' + (c.ch + 1);
+      }
+
+      function updateCrosshair() {
+        if (!editorInstance) return;
+        const coords = editorInstance.cursorCoords(true, 'local');
+        const scroll = editorDiv.querySelector('.CodeMirror-scroll');
+        if (scroll) scroll.style.setProperty('--cur-x', coords.left + 'px');
+      }
+
+      function saveEditor(thenClose) {
+        if (!editorInstance) return;
+        const content = editorInstance.getValue();
+        setStatus('Saving…', false);
+        const headers = {};
+        if (editorETag) headers['If-Match'] = editorETag;
+        fetch('/api/v1/file?path=' + encodeURIComponent(editorFilePath), {
+          method: 'PUT', headers: headers, body: content,
+        })
+          .then(function (r) {
+            if (r.status === 409) {
+              setStatus('⚠ Conflict: file was modified by another client — :q! to discard, or copy edits and reopen', true);
+              return;
+            }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            editorDirty = false;
+            fetch('/api/v1/file?path=' + encodeURIComponent(editorFilePath))
+              .then(function (r2) { if (r2.ok) editorETag = r2.headers.get('ETag') || ''; });
+            setStatus('Written ' + new Blob([content]).size + 'B', false);
+            setTimeout(function () { if (!editorDirty) setStatus('', false); }, 2000);
+            if (thenClose) closeEditor(true);
+          })
+          .catch(function (err) { setStatus('Error: ' + err.message, true); });
+      }
+
+      // Re-focus the CodeMirror textarea whenever the overlay is clicked so
+      // the editor doesn't lose the "text input focused" status.
+      overlay.addEventListener('mousedown', function (e) {
+        if (editorInstance && !editorDiv.contains(e.target)) {
+          e.preventDefault();
+          editorInstance.getInputField().focus();
+        }
+      });
+
+      // ── Block browser/extension interception of ':' ───────────────────────
+      // Vimium and similar extensions capture ':' at the window level before
+      // CodeMirror's textarea ever sees it.  We intercept first, then route
+      // directly through the vim state machine with Vim.handleKey — which is
+      // the public API for this, unlike the internal triggerOnKeyDown.
+      // Only intercept in normal/visual mode; insert mode should type ':'.
+      window.addEventListener('keydown', function (e) {
+        if (e.key !== ':' || overlay.classList.contains('hidden') || !editorInstance) return;
+        if (editorDiv.querySelector('.CodeMirror-dialog')) return;
+        var vim = editorInstance.state && editorInstance.state.vim;
+        if (!vim || vim.insertMode) return;
+        if (!window.CodeMirror || !CodeMirror.Vim) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        CodeMirror.Vim.handleKey(editorInstance, ':');
+      }, true);
+
+      function closeEditor(force) {
+        if (!force && editorDirty) {
+          setStatus('Unsaved changes — :w to save, :q! to force quit', true);
+          return;
+        }
+        overlay.classList.add('hidden');
+        editorInstance = null;
+        editorDiv.innerHTML = '';
+        editorDirty = false;
+        writePrompt();
+        term.focus();
+      }
+
+      // ── Main WebSocket ────────────────────────────────────────────────────────
+
+      ws.onopen = function () {
+        term.writeln('Connected. Type "help" for available commands.');
+      };
+
+      ws.onmessage = function (event) {
+        const msg = JSON.parse(event.data);
+        switch (msg.type) {
+          case 'output':    term.write(msg.data); break;
+          case 'done':      writePrompt(); break;
+          case 'prompt':
+            PROMPT = msg.data;
+            term.write('\r\n' + PROMPT);
+            break;
+          case 'names':
+            containerNames = msg.names || [];
+            break;
+          case 'edit':
+            activeFilePath = msg.data || activeFilePath;
+            openEditor(activeFilePath);
+            running = false;
+            break;
+          case 'exec_open':
+            openExecSession(msg.data);
+            break;
+          case 'error':
+            term.write('\r\n\x1b[31m' + msg.msg + '\x1b[0m');
+            writePrompt();
+            break;
+          case 'clear':
+            term.clear();
+            term.write(PROMPT + line);
+            break;
+        }
+      };
+
+      ws.onclose = function () {
+        term.writeln('\r\n\x1b[33mDisconnected. Reload to reconnect.\x1b[0m');
+      };
+      ws.onerror = function () {
+        term.writeln('\r\n\x1b[31mWebSocket error.\x1b[0m');
+      };
+
+      // ── Terminal key handler ──────────────────────────────────────────────────
+
+      term.onKey(function ({ key, domEvent }) {
+        // In exec mode onData handles all forwarding (keyboard + paste).
+        if (execMode) return;
+
+        const k = domEvent.key;
+
+        if (k === 'Enter') {
+          if (running) return;
+          const cmd = line.trim();
+          if (cmd) { history.unshift(cmd); if (history.length > 100) history.pop(); }
+          histIdx = -1;
+          term.write('\r\n');
+          line = '';
+          if (!cmd) { writePrompt(); return; }
+          running = true;
+          ws.send(JSON.stringify({ cmd: cmd }));
+          return;
+        }
+
+        if (k === 'Backspace') {
+          if (line.length > 0) { line = line.slice(0, -1); term.write('\b \b'); }
+          return;
+        }
+
+        if (k === 'ArrowUp') {
+          if (histIdx + 1 < history.length) {
+            histIdx++;
+            clearCurrentLine();
+            line = history[histIdx];
+            term.write(line);
+          }
+          return;
+        }
+
+        if (k === 'ArrowDown') {
+          if (histIdx > 0) {
+            histIdx--;
+            clearCurrentLine();
+            line = history[histIdx];
+            term.write(line);
+          } else if (histIdx === 0) {
+            histIdx = -1;
+            clearCurrentLine();
+            line = '';
+          }
+          return;
+        }
+
+        if (k === 'Tab') {
+          domEvent.preventDefault();
+          tabComplete();
+          return;
+        }
+
+        if (domEvent.ctrlKey && k === 'c') {
+          if (running) {
+            ws.send(JSON.stringify({ cmd: '__interrupt__' }));
+          } else {
+            term.write('^C');
+            line = '';
+            writePrompt();
+          }
+          return;
+        }
+
+        if (domEvent.ctrlKey && k === 'l') {
+          term.clear();
+          term.write(PROMPT + line);
+          return;
+        }
+
+        if (!domEvent.ctrlKey && !domEvent.altKey && !domEvent.metaKey && key.length === 1) {
+          line += key;
+          term.write(key);
+        }
+      });
+    }
+  </script>
+</head>
+<body class="terminal-body">
+  <div class="topbar" id="topbar">
+    <span class="topbar-title">containerctl</span>
+
+    <!-- Exec session badge: visible only during an active exec session -->
+    <div class="exec-badge hidden" id="exec-badge">
+      <span class="exec-badge-sep">›</span>
+      <span class="exec-badge-label">exec</span>
+      <span class="exec-badge-name" id="exec-badge-name"></span>
+      <span class="exec-badge-cmd"  id="exec-badge-cmd"></span>
+      <button type="button" class="exec-exit-btn" id="exec-exit-btn"
+              title="Send Ctrl+D to end the exec session">Exit</button>
+    </div>
+
+    <form method="POST" action="/logout">
+      <button type="submit" class="logout-btn">Logout</button>
+    </form>
+  </div>
+
+  <div id="terminal-container"></div>
+
+  <!-- Editor overlay (hidden by default) -->
+  <div id="editor-overlay" class="editor-overlay hidden">
+    <div class="editor-topbar">
+      <span class="editor-icon">&#9998;</span>
+      <span id="editor-filename" class="editor-filename"></span>
+      <span id="editor-status"   class="editor-status"></span>
+      <span class="editor-hint">:w&nbsp;write &nbsp;&middot;&nbsp; :wq&nbsp;save+quit &nbsp;&middot;&nbsp; :q!&nbsp;/ Ctrl+Q&nbsp;force quit &nbsp;&middot;&nbsp; Ctrl+S&nbsp;save</span>
+    </div>
+    <div id="editor-cm" class="editor-cm"></div>
+    <div class="editor-statusbar">
+      <span id="vim-mode-label" class="vim-mode vim-mode-normal">NORMAL</span>
+      <span id="editor-pos"     class="editor-pos">Ln 1, Col 1</span>
+    </div>
+  </div>
+
+  <!-- Try /static/ first (present after "make build"); fall back to CDN. -->
+  <script src="/static/xterm.js" onerror="loadCDN()"></script>
+  <script src="/static/xterm-addon-fit.js" onerror="0"></script>
+  <script>
+    if (typeof Terminal !== 'undefined' && typeof FitAddon !== 'undefined') init();
+  </script>
+</body>
+</html>

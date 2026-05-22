@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>containerctl · login</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-logo">containerctl</div>
+    <div class="login-error" id="err" style="display:none"></div>
+    <form method="POST" action="/login" id="login-form">
+      <input type="password" name="token" id="token-input" placeholder="Access token" autofocus autocomplete="current-password">
+      <button type="submit" id="submit-btn">Sign in</button>
+    </form>
+  </div>
+  <script>
+    (function () {
+      const params  = new URLSearchParams(location.search);
+      const errType = params.get('error');
+      const errDiv  = document.getElementById('err');
+      const btn     = document.getElementById('submit-btn');
+      const input   = document.getElementById('token-input');
+
+      if (errType === '1') {
+        errDiv.textContent = 'Invalid token. Please try again.';
+        errDiv.style.display = 'block';
+      } else if (errType === 'blocked') {
+        let sec = Math.max(1, parseInt(params.get('sec') || '30', 10));
+        errDiv.style.display = 'block';
+        btn.disabled = true;
+        input.disabled = true;
+
+        function tick() {
+          if (sec <= 0) {
+            errDiv.textContent = 'You may try again now.';
+            btn.disabled = false;
+            btn.textContent = 'Sign in';
+            input.disabled = false;
+            input.focus();
+            return;
+          }
+          errDiv.textContent =
+            'Too many failed attempts. Try again in ' + sec + ' second' + (sec === 1 ? '' : 's') + '.';
+          btn.textContent = sec + 's';
+          sec--;
+          setTimeout(tick, 1000);
+        }
+        tick();
+      }
+    })();
+  </script>
+</body>
+</html>
