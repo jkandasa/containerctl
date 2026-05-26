@@ -71,6 +71,16 @@ func runtimeFrom(stack *config.Stack) (rt.Runtime, error) {
 	return newRuntime(name, socket)
 }
 
+// runtimeFromOptional builds a runtime using the stack when available, falling
+// back to --runtime and --socket flags only. Use this for host-wide commands
+// (images, volumes, networks, prune) that do not require a stack file.
+func runtimeFromOptional(stack *config.Stack) (rt.Runtime, error) {
+	if stack != nil {
+		return runtimeFrom(stack)
+	}
+	return newRuntime(flagRuntime, flagSocket)
+}
+
 func colors() render.Colors {
 	if flagNoColor || os.Getenv("NO_COLOR") != "" {
 		return render.NoColors()

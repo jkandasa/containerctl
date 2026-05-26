@@ -35,15 +35,9 @@ func init() {
 func runVolumes(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	stack, err := config.Load(flagFile)
-	if err != nil {
-		return err
-	}
-	if flagProject != "" {
-		stack.Project = flagProject
-	}
+	stack, _ := config.Load(flagFile)
 
-	r, err := runtimeFrom(stack)
+	r, err := runtimeFromOptional(stack)
 	if err != nil {
 		return err
 	}

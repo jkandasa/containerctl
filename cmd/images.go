@@ -31,15 +31,9 @@ func init() {
 func runImages(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	stack, err := config.Load(flagFile)
-	if err != nil {
-		return err
-	}
-	if flagProject != "" {
-		stack.Project = flagProject
-	}
+	stack, _ := config.Load(flagFile)
 
-	r, err := runtimeFrom(stack)
+	r, err := runtimeFromOptional(stack)
 	if err != nil {
 		return err
 	}
@@ -113,6 +107,8 @@ func buildImageContainerRefMap(ctrs []rt.ContainerInfo) map[string][]imageContai
 // unusedImages filters to images not referenced by any container or stack declaration.
 // Matching is done by image ID (reliable) with tag name as a secondary check, because
 // Docker may return different name formats (short vs. fully-qualified) across API calls.
+// stack may be nil when no stack file is available; in that case only running containers
+// are considered.
 func unusedImages(ctrs []rt.ContainerInfo, stack *config.Stack, imgs []rt.ImageInfo) []rt.ImageInfo {
 	inUseIDs   := make(map[string]bool)
 	inUseNames := make(map[string]bool)
@@ -126,8 +122,10 @@ func unusedImages(ctrs []rt.ContainerInfo, stack *config.Stack, imgs []rt.ImageI
 			inUseIDs[id] = true
 		}
 	}
-	for _, c := range stack.Containers {
-		inUseNames[c.Image] = true
+	if stack != nil {
+		for _, c := range stack.Containers {
+			inUseNames[c.Image] = true
+		}
 	}
 
 	out := imgs[:0]

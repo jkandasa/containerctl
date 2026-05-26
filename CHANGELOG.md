@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `images [name...]` — positional arguments now filter images by name or tag substring.
 - `NO_COLOR` environment variable is now honoured in addition to `--no-color`.
+- `images`, `volumes`, `networks`, and `prune` no longer require a `stack.yaml` to be present. The runtime is determined from `--runtime`/`--socket` flags (defaulting to Docker). If a stack file is found it is still used for runtime/socket settings; `images --unused` and `prune --images` will also cross-reference stack declarations when a file is present.
 
 ### Changed
 - `check-update` renamed to `update` — shorter and less redundant (it already implies checking).
