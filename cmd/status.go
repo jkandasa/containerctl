@@ -192,6 +192,8 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			entry.Image = lc.Image
 			entry.ContainerID = shortID(lc.ID)
 			entry.Ports = portBindingsToEntries(lc.Ports)
+			entry.Networks = networkEntries(lc.NetworkInfos)
+			entry.Mounts = mountEntries(lc.Mounts)
 			if !lc.StartedAt.IsZero() {
 				entry.StartedAt = &lc.StartedAt
 			}
@@ -205,6 +207,8 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 		entry.ContainerName = lc.Name
 		entry.ContainerID = shortID(lc.ID)
 		entry.Ports = portBindingsToEntries(lc.Ports)
+		entry.Networks = networkEntries(lc.NetworkInfos)
+		entry.Mounts = mountEntries(lc.Mounts)
 		if !lc.StartedAt.IsZero() {
 			entry.StartedAt = &lc.StartedAt
 		}
@@ -274,6 +278,8 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			Image:         lc.Image,
 			ContainerID:   shortID(lc.ID),
 			Ports:         portBindingsToEntries(lc.Ports),
+			Networks:      networkEntries(lc.NetworkInfos),
+			Mounts:        mountEntries(lc.Mounts),
 			Sync:          "-",
 			Note:          "not in stack.yaml (orphan)",
 		}
@@ -325,6 +331,38 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 	}
 	render.Status(w, entries, render.Format(flagOutput), colors())
 	return nil
+}
+
+// networkEntries converts runtime network info to render NetworkEntry slice.
+func networkEntries(nets []rt.ContainerNetworkInfo) []render.NetworkEntry {
+	out := make([]render.NetworkEntry, 0, len(nets))
+	for _, n := range nets {
+		out = append(out, render.NetworkEntry{
+			Name:      n.Name,
+			IPAddress: n.IPAddress,
+			Gateway:   n.Gateway,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// mountEntries converts runtime mounts to render MountEntry slice, skipping tmpfs.
+func mountEntries(mounts []rt.ContainerMount) []render.MountEntry {
+	out := make([]render.MountEntry, 0, len(mounts))
+	for _, m := range mounts {
+		if m.Type == "tmpfs" {
+			continue
+		}
+		out = append(out, render.MountEntry{
+			Type:        m.Type,
+			Name:        m.Name,
+			Source:      m.Source,
+			Destination: m.Destination,
+			ReadOnly:    m.ReadOnly,
+		})
+	}
+	return out
 }
 
 // portBindingsToEntries converts runtime port bindings to render PortEntry slice.

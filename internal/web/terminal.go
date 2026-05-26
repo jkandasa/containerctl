@@ -62,7 +62,10 @@ var cmdHelp = map[string]string{
 	"enable":       "re-enable a previously disabled container",
 	"exec":         "run a non-interactive command in a container  e.g. exec <name> env",
 	"help":         "show this help",
+	"images":       "list local images  (flag: --unused)",
 	"logs":         "stream container logs  (flags: --follow  --tail N)",
+	"networks":     "list networks  (flag: --unused)",
+	"prune":        "remove unused resources  (flags: --images --volumes --networks --all --dry-run --force)",
 	"pull":         "pull images without reconciling",
 	"restart":      "stop, remove, recreate, and start containers",
 	"start":        "start a stopped managed container",
@@ -71,6 +74,7 @@ var cmdHelp = map[string]string{
 	"upgrade":      "force-pull and recreate a container",
 	"use":          "switch active stack file  e.g. use /path/to/other/stack.yaml",
 	"version":      "print binary version and runtime info",
+	"volumes":      "list local volumes  (flag: --unused)",
 }
 
 var allowedCmds = func() map[string]bool {

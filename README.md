@@ -75,8 +75,8 @@ containerctl status    # see running state and sync status
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...] [--stats] [--watch]` | Show image, state, ports, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, container name, and timestamps. |
-| `check-update [name...] [--apply]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. |
+| `status [name...] [--stats] [--watch]` | Show image, state, ports, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps. |
+| `check-update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
 | `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
 | `restart [name...] \| --all [--follow]` | Stop, remove, recreate, and start from current config — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
@@ -87,6 +87,10 @@ containerctl status    # see running state and sync status
 | `enable <name...>` | Remove from state file and reconcile. |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
 | `logs <name> [--follow] [--tail N]` | Stream container logs. |
+| `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
+| `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
+| `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
+| `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
@@ -152,7 +156,7 @@ When stdin is a terminal, a PTY is allocated and the terminal is put into raw mo
 
 ### Structured output
 
-`-o json` and `-o yaml` emit richer data than the text table:
+`-o json` and `-o yaml` emit richer data than the text table. All JSON and YAML output is indented with 2 spaces.
 
 ```yaml
 # containerctl status -o yaml
@@ -168,6 +172,19 @@ When stdin is a terminal, a PTY is allocated and the terminal is put into raw mo
       host_port: "5432"
       container_port: "5432"
       protocol: tcp
+  networks:
+    - name: backend
+      ip_address: 172.18.0.3
+      gateway: 172.18.0.1
+  mounts:
+    - type: volume
+      name: pgdata
+      source: /var/lib/docker/volumes/pgdata/_data
+      destination: /var/lib/postgresql/data
+    - type: bind
+      source: /host/config
+      destination: /etc/config
+      read_only: true
   started_at: 2026-05-14T10:22:00Z
   restart_count: 2
   last_restart: 2026-05-15T03:11:42Z
@@ -186,7 +203,47 @@ When stdin is a terminal, a PTY is allocated and the terminal is put into raw mo
   memory_used_bytes: 40042496
 ```
 
-Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, etc.). `cpu_percent`, `memory_used`, and `memory_used_bytes` only appear when `--stats` is passed.
+Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, `networks`/`mounts` when empty, etc.). `cpu_percent`, `memory_used`, and `memory_used_bytes` only appear when `--stats` is passed.
+
+**Resource listing commands** also produce enriched structured output:
+
+```yaml
+# containerctl volumes -o yaml
+- name: pgdata
+  driver: local
+  mountpoint: /var/lib/docker/volumes/pgdata/_data
+  containers:
+    - name: postgres
+      state: running
+      source: /var/lib/docker/volumes/pgdata/_data
+      destination: /var/lib/postgresql/data
+
+# containerctl volumes --size -o yaml  (triggers daemon-side disk scan)
+- name: pgdata
+  driver: local
+  mountpoint: /var/lib/docker/volumes/pgdata/_data
+  size: 47399936    # bytes; -1 when driver doesn't report
+  containers: [...]
+
+# containerctl networks -o yaml
+- id: abc123
+  name: backend
+  driver: bridge
+  containers:
+    - name: postgres
+      state: running
+      ip_address: 172.18.0.3
+      gateway: 172.18.0.1
+
+# containerctl images -o yaml
+- id: a3f2b1c94d8e
+  tags: [postgres:16]
+  size: 133169152
+  created: 2026-01-10T00:00:00Z
+  containers:
+    - name: postgres
+      state: running
+```
 
 ---
 

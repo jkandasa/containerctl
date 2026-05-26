@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,7 +18,10 @@ import (
 	"github.com/jkandasa/containerctl/internal/state"
 )
 
-var flagCheckUpdateApply bool
+var (
+	flagCheckUpdateApply  bool
+	flagCheckUpdateFollow bool
+)
 
 var checkUpdateCmd = &cobra.Command{
 	Use:   "check-update [name...]",
@@ -27,6 +32,7 @@ var checkUpdateCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(checkUpdateCmd)
 	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateApply, "apply", false, "pull and recreate containers with patch/minor updates or digest changes")
+	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateFollow, "follow", false, "follow logs after applying (requires --apply and exactly one container)")
 }
 
 type imageUpdateStatus struct {
@@ -41,6 +47,13 @@ type imageUpdateStatus struct {
 }
 
 func runCheckUpdate(cmd *cobra.Command, args []string) error {
+	if flagCheckUpdateFollow && !flagCheckUpdateApply {
+		return fmt.Errorf("--follow requires --apply")
+	}
+	if flagCheckUpdateFollow && len(args) != 1 {
+		return fmt.Errorf("--follow requires exactly one container name")
+	}
+
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -203,6 +216,13 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		fmt.Printf("  %-20s updated → running\n", r.name)
+	}
+
+	if flagCheckUpdateFollow && len(toApply) > 0 {
+		sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", args[0])
+		return followContainerLogs(sigCtx, runtime, stack, args[0])
 	}
 	return nil
 }

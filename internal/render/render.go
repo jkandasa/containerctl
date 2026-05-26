@@ -110,6 +110,22 @@ type PortEntry struct {
 	Protocol      string `json:"protocol"             yaml:"protocol"`
 }
 
+// NetworkEntry is a network attachment for a container.
+type NetworkEntry struct {
+	Name      string `json:"name"                 yaml:"name"`
+	IPAddress string `json:"ip_address,omitempty" yaml:"ip_address,omitempty"`
+	Gateway   string `json:"gateway,omitempty"    yaml:"gateway,omitempty"`
+}
+
+// MountEntry is a mount point for a container.
+type MountEntry struct {
+	Type        string `json:"type"                yaml:"type"`
+	Name        string `json:"name,omitempty"      yaml:"name,omitempty"`
+	Source      string `json:"source"              yaml:"source"`
+	Destination string `json:"destination"         yaml:"destination"`
+	ReadOnly    bool   `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+}
+
 // ResourceLimits holds the formatted resource constraints for a container.
 type ResourceLimits struct {
 	CPUs   string `json:"cpus,omitempty"   yaml:"cpus,omitempty"`
@@ -121,24 +137,26 @@ type ResourceLimits struct {
 // JSON and YAML output marshal this directly; text output derives display
 // strings from the typed fields.
 type StatusEntry struct {
-	Name          string          `json:"name"                    yaml:"name"`
-	ContainerName string          `json:"container_name,omitempty" yaml:"container_name,omitempty"`
-	Image         string          `json:"image"                   yaml:"image"`
-	ImageDigest   string          `json:"image_digest,omitempty"  yaml:"image_digest,omitempty"`
-	ImageSize     string          `json:"image_size,omitempty"    yaml:"image_size,omitempty"`
-	State         string          `json:"state"                   yaml:"state"`
-	ContainerID   string          `json:"container_id,omitempty"  yaml:"container_id,omitempty"`
-	Ports         []PortEntry     `json:"ports"                   yaml:"ports"`
-	StartedAt     *time.Time      `json:"started_at,omitempty"    yaml:"started_at,omitempty"`
-	RestartCount  int             `json:"restart_count"           yaml:"restart_count"`
-	LastRestart   *time.Time      `json:"last_restart,omitempty"  yaml:"last_restart,omitempty"`
-	Sync             string          `json:"sync"                       yaml:"sync"`
-	ExitCode         *int            `json:"exit_code,omitempty"        yaml:"exit_code,omitempty"`
-	Resources        *ResourceLimits `json:"resources,omitempty"        yaml:"resources,omitempty"`
-	CPUPercent       *float64        `json:"cpu_percent,omitempty"      yaml:"cpu_percent,omitempty"`
-	MemoryUsedBytes  int64           `json:"memory_used_bytes,omitempty" yaml:"memory_used_bytes,omitempty"`
-	MemoryUsed       string          `json:"memory_used,omitempty"      yaml:"memory_used,omitempty"`
-	Note             string          `json:"note,omitempty"             yaml:"note,omitempty"`
+	Name            string          `json:"name"                       yaml:"name"`
+	ContainerName   string          `json:"container_name,omitempty"   yaml:"container_name,omitempty"`
+	Image           string          `json:"image"                      yaml:"image"`
+	ImageDigest     string          `json:"image_digest,omitempty"     yaml:"image_digest,omitempty"`
+	ImageSize       string          `json:"image_size,omitempty"       yaml:"image_size,omitempty"`
+	State           string          `json:"state"                      yaml:"state"`
+	ContainerID     string          `json:"container_id,omitempty"     yaml:"container_id,omitempty"`
+	Ports           []PortEntry     `json:"ports"                      yaml:"ports"`
+	Networks        []NetworkEntry  `json:"networks,omitempty"         yaml:"networks,omitempty"`
+	Mounts          []MountEntry    `json:"mounts,omitempty"           yaml:"mounts,omitempty"`
+	StartedAt       *time.Time      `json:"started_at,omitempty"       yaml:"started_at,omitempty"`
+	RestartCount    int             `json:"restart_count"              yaml:"restart_count"`
+	LastRestart     *time.Time      `json:"last_restart,omitempty"     yaml:"last_restart,omitempty"`
+	Sync            string          `json:"sync"                       yaml:"sync"`
+	ExitCode        *int            `json:"exit_code,omitempty"        yaml:"exit_code,omitempty"`
+	Resources       *ResourceLimits `json:"resources,omitempty"        yaml:"resources,omitempty"`
+	CPUPercent      *float64        `json:"cpu_percent,omitempty"      yaml:"cpu_percent,omitempty"`
+	MemoryUsedBytes int64           `json:"memory_used_bytes,omitempty" yaml:"memory_used_bytes,omitempty"`
+	MemoryUsed      string          `json:"memory_used,omitempty"      yaml:"memory_used,omitempty"`
+	Note            string          `json:"note,omitempty"             yaml:"note,omitempty"`
 }
 
 func Status(w io.Writer, entries []StatusEntry, format Format, colors Colors) {

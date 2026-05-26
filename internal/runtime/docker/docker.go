@@ -9,10 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -389,14 +391,38 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 				Protocol:      p.Type,
 			})
 		}
+		var mounts []rt.ContainerMount
+		for _, m := range ctr.Mounts {
+			mounts = append(mounts, rt.ContainerMount{
+				Type:        string(m.Type),
+				Name:        m.Name,
+				Source:      m.Source,
+				Destination: m.Destination,
+				ReadOnly:    !m.RW,
+			})
+		}
+		var netInfos []rt.ContainerNetworkInfo
+		if ctr.NetworkSettings != nil {
+			for n, ep := range ctr.NetworkSettings.Networks {
+				info := rt.ContainerNetworkInfo{Name: n}
+				if ep != nil {
+					info.IPAddress = ep.IPAddress
+					info.Gateway = ep.Gateway
+				}
+				netInfos = append(netInfos, info)
+			}
+		}
 		out = append(out, rt.ContainerInfo{
-			ID:        ctr.ID,
-			Name:      name,
-			Image:     ctr.Image,
-			State:     ctr.State,
-			Labels:    ctr.Labels,
-			StartedAt: startedAt,
-			Ports:     ports,
+			ID:           ctr.ID,
+			Name:         name,
+			Image:        ctr.Image,
+			ImageID:      ctr.ImageID,
+			Mounts:       mounts,
+			NetworkInfos: netInfos,
+			State:        ctr.State,
+			Labels:       ctr.Labels,
+			StartedAt:    startedAt,
+			Ports:        ports,
 		})
 	}
 	return out, nil
@@ -532,6 +558,13 @@ func (c *Client) ListNetworks(ctx context.Context, f rt.Filters) ([]rt.NetworkIn
 	for k, v := range f.Labels {
 		args.Add("label", k+"="+v)
 	}
+	if f.Dangling != nil {
+		if *f.Dangling {
+			args.Add("dangling", "true")
+		} else {
+			args.Add("dangling", "false")
+		}
+	}
 	list, err := c.cli.NetworkList(ctx, network.ListOptions{Filters: args})
 	if err != nil {
 		return nil, err
@@ -561,6 +594,88 @@ func (c *Client) NetworkExists(ctx context.Context, name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (c *Client) ListImages(ctx context.Context) ([]rt.ImageInfo, error) {
+	imgs, err := c.cli.ImageList(ctx, image.ListOptions{All: false})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]rt.ImageInfo, 0, len(imgs))
+	for _, img := range imgs {
+		id := img.ID
+		if strings.HasPrefix(id, "sha256:") {
+			id = id[7:]
+		}
+		if len(id) > 12 {
+			id = id[:12]
+		}
+		var digest string
+		for _, d := range img.RepoDigests {
+			if i := strings.Index(d, "@"); i >= 0 {
+				digest = d[i+1:]
+				break
+			}
+		}
+		out = append(out, rt.ImageInfo{
+			ID:      id,
+			Tags:    img.RepoTags,
+			Digest:  digest,
+			Size:    img.Size,
+			Created: time.Unix(img.Created, 0),
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
+	_, err := c.cli.ImageRemove(ctx, id, image.RemoveOptions{Force: force, PruneChildren: true})
+	return err
+}
+
+func (c *Client) ListVolumes(ctx context.Context, f rt.Filters) ([]rt.VolumeInfo, error) {
+	args := filters.NewArgs()
+	if f.Dangling != nil {
+		if *f.Dangling {
+			args.Add("dangling", "true")
+		} else {
+			args.Add("dangling", "false")
+		}
+	}
+	resp, err := c.cli.VolumeList(ctx, volume.ListOptions{Filters: args})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]rt.VolumeInfo, 0, len(resp.Volumes))
+	for _, v := range resp.Volumes {
+		out = append(out, rt.VolumeInfo{
+			Name:       v.Name,
+			Driver:     v.Driver,
+			Mountpoint: v.Mountpoint,
+			Labels:     v.Labels,
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
+	return c.cli.VolumeRemove(ctx, name, force)
+}
+
+func (c *Client) VolumeSizes(ctx context.Context) (map[string]int64, error) {
+	du, err := c.cli.DiskUsage(ctx, types.DiskUsageOptions{
+		Types: []types.DiskUsageObject{types.VolumeObject},
+	})
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]int64, len(du.Volumes))
+	for _, v := range du.Volumes {
+		if v.UsageData != nil {
+			m[v.Name] = v.UsageData.Size // -1 when driver doesn't report
+		}
+	}
+	return m, nil
 }
 
 func envMapToSlice(m map[string]string) []string {

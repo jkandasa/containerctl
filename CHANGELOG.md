@@ -13,18 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `group_add` field in `stack.yaml` — adds supplementary GIDs to the container process without changing the user or primary group. Accepts a list of group IDs or names (e.g. `["1500", "docker"]`). Changes are included in the config hash and trigger recreation on `apply`.
 - `exec <name> [command...]` — run a command inside a running container. Defaults to `/bin/sh`. Allocates a PTY and sets raw terminal mode when stdin is a terminal; window resize is forwarded automatically. Non-TTY invocations (piped stdin) run without a PTY.
 - `start --follow` and `restart --follow` stream container logs immediately after the container is running. Requires a single container name (not compatible with `--all` or multiple names).
-- `serve` — starts an HTTP/HTTPS web server exposing a browser-based management terminal. After authenticating with a shared token, the browser session can run all containerctl subcommands. Supports plain HTTP, self-signed TLS, Let's Encrypt, and custom cert/key.
-- `serve` brute-force login protection: 5 consecutive failures from the same IP trigger a 30-second block with a browser-side countdown timer.
-- `serve` browser terminal tab-completion for command names, container names, and per-command flags.
-- `serve` command history (up/down arrow) per browser session.
-- `serve` browser exec sessions: `exec <container> [command]` opens a full PTY-based interactive shell in the browser terminal. Gated by `serve.exec.enabled: true` in `stack.yaml`; an optional `serve.exec.allowed` list restricts which containers may be exec'd into. Both interactive and non-interactive `exec` invocations are blocked when disabled.
-- `serve` browser stack file editor: `edit` opens the active stack file in a full-screen CodeMirror editor with vim keybindings and YAML syntax highlighting. Keys: `:w`/`Ctrl+S` save; `:wq`/`:x` save+quit; `:q` quit; `:q!`/`Ctrl+Q` force-quit. Concurrent edit protection via ETag — 409 Conflict preserves unsaved edits. Gated by `serve.edit.enabled: true`.
-- `serve` `use <path>` terminal command switches the active stack file for the current browser session without restarting the server. The prompt updates to show the new stack basename. Gated by `serve.use.enabled: true`.
-- `serve` per-command `--file` override: if the user includes `--file` or `-f` in a terminal command, the server uses that path instead of injecting the session default.
-- `serve.exec.enabled`, `serve.exec.allowed`, `serve.edit.enabled`, `serve.use.enabled` fields in `stack.yaml` — opt-in gates for web terminal features. All default to disabled for minimal-privilege deployments.
+- `check-update --follow` streams logs after `--apply` completes for a single container. Requires both `--apply` and exactly one container name argument.
+- `images [--unused]` — list all local images with tags, size, age, and attached container names. `--unused` filters to images not referenced by any running container or stack declaration. `-o json|yaml` includes per-image container list with name and state.
+- `volumes [--unused] [--size]` — list local volumes with driver and attached containers. `--unused` filters to dangling (unmounted) volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (triggers a daemon-side scan) and adds a SIZE column; in JSON/YAML the size is in bytes (`-1` when the driver does not report). `-o json|yaml` additionally includes the host `mountpoint` and per-container mount details (source, destination, read_only).
+- `networks [--unused]` — list user-defined networks (system networks `bridge`, `host`, `none` are excluded). `--unused` filters to networks not connected to any container. `-o json|yaml` includes per-network container list with IP address and gateway. The MANAGED column indicates networks created by containerctl.
+- `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` — remove unused local resources. At least one resource type must be selected; `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews what would be removed without acting. When stdin is not a terminal, `--force` is required to prevent accidental deletion in scripts.
+- `status -o json|yaml` now includes `networks` (name, ip_address, gateway) and `mounts` (type, name, source, destination, read_only) for each container. Tmpfs mounts are excluded. These fields are omitted from the text table output.
+
+### Changed
+- All JSON output is now indented with 2 spaces for readability (previously compact single-line).
+- All YAML output uses 2-space indentation consistently across all commands.
+- `volumes -o json|yaml` includes the host `mountpoint` path and an optional `size` field (populated only when `--size` is passed).
+- `networks -o json|yaml` fields are now consistently snake_case with explicit JSON tags (`id`, `name`, `driver`, `labels`).
+- `ListContainers` now populates full mount details (`ContainerMount`: type, name, source, destination, read_only) and network details (`ContainerNetworkInfo`: name, ip_address, gateway) instead of plain string slices. This powers the enriched JSON output across `status`, `volumes`, `networks`, and `images`.
 
 ### Fixed
 - `exec` no longer leaves the terminal in raw mode (invisible input) after the container exits with a non-zero code. `os.Exit` bypasses deferred functions; the terminal state is now restored explicitly before exit.
+- `serve` browser terminal no longer shows a double prompt after a blocked or unrecognised command. The `error` message handler no longer calls `writePrompt()` — the `done` message that always follows handles the prompt.
+- `volumes -o json` no longer silently omits the `size` field for empty volumes. Changed from `int64` with `omitempty` (which drops `0`) to `*int64` — `nil` means not fetched (omitted), `0` means genuinely empty, `-1` means driver does not report.
+- `prune --images` no longer marks images that are actively used by running containers as candidates for removal. Image matching now uses the short 12-character image ID from the container's `ImageID` field as the primary check, with tag name as a fallback.
 
 ---
 

@@ -53,7 +53,7 @@ containerctl/
 │   ├── status.go
 │   ├── upgrade.go
 │   ├── restart.go          # stop → remove → create → start
-│   ├── check_update.go     # registry update check; --apply for patch/digest updates
+│   ├── check_update.go     # registry update check; --apply/--follow
 │   ├── down.go
 │   ├── logs.go
 │   ├── pull.go
@@ -61,6 +61,11 @@ containerctl/
 │   ├── start.go            # transient start
 │   ├── disable.go          # persistent off via state file
 │   ├── enable.go           # removes from state file, re-reconciles
+│   ├── images.go           # list local images; --unused; -o json|yaml
+│   ├── volumes.go          # list local volumes; --unused/--size; -o json|yaml
+│   ├── networks.go         # list user-defined networks; --unused; -o json|yaml
+│   ├── prune.go            # remove unused images/volumes/networks
+│   ├── helpers.go          # formatAge, formatImageSize, stdinIsTerminal
 │   └── version.go
 ├── internal/
 │   ├── config/             # YAML load + validate + normalize + hash
@@ -222,22 +227,26 @@ The `$$` escape is useful when the container's entrypoint is a shell and should 
 
 All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime docker|podman` (overrides YAML).
 
-| Command                                          | Purpose                                                                                                                                   | Exit codes                               |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `containerctl apply [name...]`                   | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. | 0 ok, 1 error, 2 partial failure         |
-| `containerctl diff [name...]`                    | Show planned actions without making changes.                                                                                              | 0 no changes, 3 changes pending, 1 error |
-| `containerctl status [name...]`                  | Show all managed containers, their state, drift, and uptime.                                                                              | 0 ok, 1 error                            |
-| `containerctl check-update [name...] [--apply]`  | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes; major-version bumps require manual tag edit in stack.yaml. Skips containers with `disabled: true` in YAML and those with `update_policy: manual`. | 0 ok, 1 error |
-| `containerctl upgrade <name>`                    | Force-pull and recreate one container even if config hash is unchanged. Use for floating tags (e.g. `:latest`).                           | 0 ok, 1 error                            |
-| `containerctl restart [name...] [--all]`         | Stop, remove, recreate, and start containers from current config without pulling a new image.                                             | 0 ok, 1 error                            |
-| `containerctl pull [name...]`                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
-| `containerctl down [name...]`                    | Stop and remove managed containers. With no args, the whole project.                                                                      | 0 ok, 1 error                            |
-| `containerctl stop [name...] [--all]`            | **Transient** stop. Container kept on disk. Next `apply` restarts it. Requires at least one name or `--all`.                              | 0 ok, 1 error                            |
-| `containerctl start [name...] [--all]`           | Start a previously-stopped managed container without reconciling. Refuses if persistently disabled — run `enable` first. Requires at least one name or `--all`. | 0 ok, 1 error                            |
-| `containerctl disable <name...>`                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
-| `containerctl enable <name...>`                  | Removes from state file and reconciles the container (recreates if hash drifted, else starts).                                            | 0 ok, 1 error                            |
-| `containerctl logs <name> [--follow] [--tail N]` | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
-| `containerctl version`                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
+| Command                                                          | Purpose                                                                                                                                   | Exit codes                               |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `containerctl apply [name...]`                                   | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. | 0 ok, 1 error, 2 partial failure         |
+| `containerctl diff [name...]`                                    | Show planned actions without making changes.                                                                                              | 0 no changes, 3 changes pending, 1 error |
+| `containerctl status [name...]`                                  | Show all managed containers, their state, drift, and uptime. `-o json\|yaml` adds network IPs, mount paths, image digest/size, and resource limits. | 0 ok, 1 error                            |
+| `containerctl check-update [name...] [--apply] [--follow]`       | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
+| `containerctl upgrade <name>`                                    | Force-pull and recreate one container even if config hash is unchanged. Use for floating tags (e.g. `:latest`).                           | 0 ok, 1 error                            |
+| `containerctl restart [name...] [--all] [--follow]`              | Stop, remove, recreate, and start containers from current config without pulling a new image. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
+| `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
+| `containerctl down [name...]`                                    | Stop and remove managed containers. With no args, the whole project.                                                                      | 0 ok, 1 error                            |
+| `containerctl stop [name...] [--all]`                            | **Transient** stop. Container kept on disk. Next `apply` restarts it. Requires at least one name or `--all`.                              | 0 ok, 1 error                            |
+| `containerctl start [name...] [--all] [--follow]`                | Start a previously-stopped managed container without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
+| `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
+| `containerctl enable <name...>`                                  | Removes from state file and reconciles the container (recreates if hash drifted, else starts).                                            | 0 ok, 1 error                            |
+| `containerctl logs <name> [--follow] [--tail N]`                 | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
+| `containerctl images [name...] [--unused]`                       | List local images. `--unused` shows only images not referenced by any running container or stack declaration. `-o json\|yaml` includes per-image container list. | 0 ok, 1 error |
+| `containerctl volumes [--unused] [--size]`                       | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (daemon-side scan). `-o json\|yaml` includes host mountpoint, size (when `--size` is given), and per-volume mount details. | 0 ok, 1 error |
+| `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
+| `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
+| `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
 
 ### `restart` vs `upgrade` vs `apply` vs `check-update --apply`
 
@@ -288,7 +297,7 @@ Pick the most declarative one that fits: prefer `disabled: true` in YAML for any
 - `-f, --file PATH` — YAML path. Default `./stack.yaml`.
 - `--runtime docker|podman` — override YAML's `runtime:`.
 - `--socket PATH` — override default runtime socket (e.g. `/run/user/1000/podman/podman.sock`).
-- `-o, --output text|json` — output format. Default text.
+- `-o, --output text|json|yaml` — output format. Default text. JSON and YAML are indented with 2 spaces.
 - `--no-color` — disable ANSI.
 - `-v, --verbose` — debug logs to stderr.
 - `--project NAME` — override YAML's `project:` (use with care; affects which containers are considered managed).
@@ -489,6 +498,8 @@ type Runtime interface {
     InspectContainer(ctx context.Context, nameOrID string) (*ContainerInfo, error)
     ListContainers(ctx context.Context, filters Filters) ([]ContainerInfo, error)
     Logs(ctx context.Context, id string, opts LogOptions) (io.ReadCloser, error)
+    Exec(ctx context.Context, id string, opts ExecOptions) (int, error)
+    ContainerStats(ctx context.Context, id string) (ContainerUsage, error)
 
     // Networks
     CreateNetwork(ctx context.Context, spec NetworkSpec) (id string, err error)
@@ -496,14 +507,24 @@ type Runtime interface {
     ListNetworks(ctx context.Context, filters Filters) ([]NetworkInfo, error)
     NetworkExists(ctx context.Context, name string) (bool, error)
 
+    // Images
+    ListImages(ctx context.Context) ([]ImageInfo, error)
+    RemoveImage(ctx context.Context, id string, force bool) error
+
+    // Volumes
+    ListVolumes(ctx context.Context, f Filters) ([]VolumeInfo, error)
+    RemoveVolume(ctx context.Context, name string, force bool) error
+    // VolumeSizes queries the daemon's disk-usage endpoint (triggers a daemon-side
+    // disk scan). Returns a map of volume name → bytes; -1 when driver doesn't report.
+    VolumeSizes(ctx context.Context) (map[string]int64, error)
+
     // Image update detection (used by check-update)
-    // LocalImageDigest returns the RepoDigest of the locally cached image, or ""
-    // if the image has not been pulled. Used only for floating-tag digest comparison.
-    LocalImageDigest(ctx context.Context, image string) (string, error)
-    // RemoteImageDigest fetches the current digest from the registry via a direct
-    // OCI HTTP HEAD request — no daemon-specific API, works identically on Docker
-    // and Podman. Delegates to internal/registry.RemoteDigest.
+    LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
     RemoteImageDigest(ctx context.Context, image string) (string, error)
+    CheckTagUpdates(ctx context.Context, image string, max int) (*registry.TagUpdates, error)
+
+    // Engine info
+    EngineVersion(ctx context.Context) (EngineInfo, error)
 
     // Meta
     Name() string                  // "docker" or "podman"
@@ -512,26 +533,30 @@ type Runtime interface {
 }
 
 type ContainerSpec struct {
-    Name          string
-    Image         string
-    Command       []string
-    Entrypoint    []string
-    Env           map[string]string
-    Labels        map[string]string
-    Ports         []PortBinding
-    Mounts        []Mount
-    Networks      []string
-    Resources     Resources
-    Healthcheck   *Healthcheck
-    RestartPolicy string
-    User          string
-    WorkingDir    string
-    Hostname      string
-    DNS           []string
-    CapAdd, CapDrop []string
-    Privileged    bool
-    ReadOnly      bool
-    Tmpfs         []string
+    Name           string
+    Image          string
+    Command        []string
+    Entrypoint     []string
+    Env            map[string]string
+    Labels         map[string]string
+    Ports          []PortBinding
+    Mounts         []Mount
+    Networks       []string
+    NetworkAliases []string
+    Resources      Resources
+    Healthcheck    *Healthcheck
+    RestartPolicy  string
+    User           string
+    WorkingDir     string
+    Hostname       string
+    DNS            []string
+    GroupAdd       []string
+    CapAdd         []string
+    CapDrop        []string
+    Privileged     bool
+    SecurityOpt    []string
+    ReadOnly       bool
+    Tmpfs          []string
 }
 
 type PortBinding struct {
@@ -542,7 +567,7 @@ type PortBinding struct {
 }
 
 type Mount struct {
-    Type     string // "bind" | "volume"
+    Type     string // "bind" | "volume" | "tmpfs"
     Source   string
     Target   string
     ReadOnly bool
@@ -555,15 +580,43 @@ type Resources struct {
 }
 
 type Filters struct {
-    Labels map[string]string
-    Names  []string
+    Labels   map[string]string
+    Names    []string
+    Dangling *bool // nil = no filter; true = unused/dangling only
 }
 
+// ContainerInfo is returned by ListContainers and InspectContainer.
+// Mounts and NetworkInfos are populated by ListContainers and carry
+// full path and network details for structured output.
 type ContainerInfo struct {
-    ID, Name, Image, State string
-    Labels    map[string]string
-    StartedAt time.Time
-    ExitCode  int
+    ID           string
+    Name         string
+    Image        string
+    ImageID      string                // full sha256 image ID (sha256:…)
+    Mounts       []ContainerMount
+    NetworkInfos []ContainerNetworkInfo
+    State        string
+    Labels       map[string]string
+    StartedAt    time.Time
+    ExitCode     int
+    Ports        []PortBinding
+    RestartCount int
+    LastRestart  time.Time
+    Resources    ContainerResources
+}
+
+type ContainerMount struct {
+    Type        string // "bind" | "volume" | "tmpfs"
+    Name        string // volume name (empty for bind mounts)
+    Source      string // host path or volume backing path
+    Destination string // path inside the container
+    ReadOnly    bool
+}
+
+type ContainerNetworkInfo struct {
+    Name      string
+    IPAddress string
+    Gateway   string
 }
 
 type NetworkSpec struct {
@@ -573,8 +626,26 @@ type NetworkSpec struct {
 }
 
 type NetworkInfo struct {
-    ID, Name, Driver string
-    Labels map[string]string
+    ID     string            `json:"id"`
+    Name   string            `json:"name"`
+    Driver string            `json:"driver"`
+    Labels map[string]string `json:"labels,omitempty"`
+}
+
+type ImageInfo struct {
+    ID      string    `json:"id"`
+    Tags    []string  `json:"tags"`
+    Digest  string    `json:"digest,omitempty"`
+    Size    int64     `json:"size"`
+    Created time.Time `json:"created"`
+}
+
+type VolumeInfo struct {
+    Name       string            `json:"name"`
+    Driver     string            `json:"driver"`
+    Mountpoint string            `json:"mountpoint,omitempty"` // host path where volume data lives
+    Size       *int64            `json:"size,omitempty"`       // nil = not fetched; -1 = driver doesn't report
+    Labels     map[string]string `json:"labels,omitempty"`
 }
 
 type LogOptions struct {
@@ -585,9 +656,11 @@ type LogOptions struct {
 }
 
 type Healthcheck struct {
-    Test                    []string
-    Interval, Timeout, StartPeriod time.Duration
-    Retries                 int
+    Test        []string
+    Interval    time.Duration
+    Timeout     time.Duration
+    StartPeriod time.Duration
+    Retries     int
 }
 ```
 
@@ -866,7 +939,7 @@ Allowed commands:
 | User input | Dispatch |
 |-----------|----------|
 | `apply [name...]` | subprocess |
-| `check-update [name...] [--apply]` | subprocess |
+| `check-update [name...] [--apply] [--follow]` | subprocess |
 | `clear` | built-in: sends `{"type":"clear"}` |
 | `diff [name...]` | subprocess |
 | `disable <name...>` | subprocess |
@@ -875,15 +948,19 @@ Allowed commands:
 | `enable <name...>` | subprocess |
 | `exec <name> [cmd...]` | see below |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
+| `images [--unused]` | subprocess |
 | `logs <name> [--follow] [--tail N]` | subprocess |
+| `networks [--unused]` | subprocess |
+| `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | subprocess |
 | `pull [name...]` | subprocess |
-| `restart [name...] [--all]` | subprocess |
-| `start [name...] [--all]` | subprocess |
+| `restart [name...] [--all] [--follow]` | subprocess |
+| `start [name...] [--all] [--follow]` | subprocess |
 | `status [name...]` | subprocess |
 | `stop [name...] [--all]` | subprocess |
 | `upgrade <name>` | subprocess |
 | `use <path>` | built-in: updates session's active file |
 | `version` | subprocess |
+| `volumes [--unused] [--size]` | subprocess |
 
 Any other input: `{"type":"error","msg":"unknown command \"<input>\"; type help for available commands"}`.
 

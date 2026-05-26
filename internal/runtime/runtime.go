@@ -34,6 +34,14 @@ type Runtime interface {
 	ListNetworks(ctx context.Context, filters Filters) ([]NetworkInfo, error)
 	NetworkExists(ctx context.Context, name string) (bool, error)
 
+	ListImages(ctx context.Context) ([]ImageInfo, error)
+	RemoveImage(ctx context.Context, id string, force bool) error
+	ListVolumes(ctx context.Context, f Filters) ([]VolumeInfo, error)
+	RemoveVolume(ctx context.Context, name string, force bool) error
+	// VolumeSizes returns a map of volume name → size in bytes by querying the
+	// daemon's disk-usage endpoint. Returns -1 for volumes whose size is unavailable.
+	VolumeSizes(ctx context.Context) (map[string]int64, error)
+
 	// LocalImageMeta returns digest and size of the image in the local cache.
 	// Returns zero values if the image has not been pulled yet.
 	LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
@@ -115,14 +123,18 @@ type Resources struct {
 }
 
 type Filters struct {
-	Labels map[string]string
-	Names  []string
+	Labels   map[string]string
+	Names    []string
+	Dangling *bool // nil = no filter; true = unused/dangling only
 }
 
 type ContainerInfo struct {
 	ID           string
 	Name         string
 	Image        string
+	ImageID      string // full sha256 image ID (sha256:...)
+	Mounts       []ContainerMount
+	NetworkInfos []ContainerNetworkInfo
 	State        string
 	Labels       map[string]string
 	StartedAt    time.Time
@@ -131,6 +143,20 @@ type ContainerInfo struct {
 	RestartCount int
 	LastRestart  time.Time // time of last exit before a restart; zero if never restarted
 	Resources    ContainerResources
+}
+
+type ContainerMount struct {
+	Type        string `json:"type"`
+	Name        string `json:"name,omitempty"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	ReadOnly    bool   `json:"read_only,omitempty"`
+}
+
+type ContainerNetworkInfo struct {
+	Name      string `json:"name"`
+	IPAddress string `json:"ip_address,omitempty"`
+	Gateway   string `json:"gateway,omitempty"`
 }
 
 type ContainerResources struct {
@@ -156,10 +182,27 @@ type NetworkSpec struct {
 }
 
 type NetworkInfo struct {
-	ID     string
-	Name   string
-	Driver string
-	Labels map[string]string
+	ID     string            `json:"id"`
+	Name   string            `json:"name"`
+	Driver string            `json:"driver"`
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+type ImageInfo struct {
+	ID      string    `json:"id"`
+	Tags    []string  `json:"tags"`
+	Digest  string    `json:"digest,omitempty"`
+	Size    int64     `json:"size"`
+	Created time.Time `json:"created"`
+}
+
+type VolumeInfo struct {
+	Name       string            `json:"name"               yaml:"name"`
+	Driver     string            `json:"driver"             yaml:"driver"`
+	Mountpoint string            `json:"mountpoint,omitempty" yaml:"mountpoint,omitempty"`
+	// Size is nil when not fetched; -1 when the driver does not report usage.
+	Size       *int64            `json:"size,omitempty"     yaml:"size,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"   yaml:"labels,omitempty"`
 }
 
 type LogOptions struct {
