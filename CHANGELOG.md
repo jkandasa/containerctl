@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.6.0] - 2026-05-26
+
 ### Added
 - `group_add` field in `stack.yaml` — adds supplementary GIDs to the container process without changing the user or primary group. Accepts a list of group IDs or names (e.g. `["1500", "docker"]`). Changes are included in the config hash and trigger recreation on `apply`.
 - `exec <name> [command...]` — run a command inside a running container. Defaults to `/bin/sh`. Allocates a PTY and sets raw terminal mode when stdin is a terminal; window resize is forwarded automatically. Non-TTY invocations (piped stdin) run without a PTY.
