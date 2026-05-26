@@ -51,9 +51,9 @@ containerctl/
 │   ├── apply.go
 │   ├── diff.go
 │   ├── status.go
-│   ├── upgrade.go
+│   ├── upgrade.go              # repull command
 │   ├── restart.go          # stop → remove → create → start
-│   ├── check_update.go     # registry update check; --apply/--follow
+│   ├── check_update.go     # update command; registry check; --apply/--follow
 │   ├── down.go
 │   ├── logs.go
 │   ├── pull.go
@@ -141,7 +141,7 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
   image: string        # required. e.g. "postgres:16" or "registry.example.com/app:v1.2.3".
   disabled: bool       # optional. Default: false. When true, apply removes the container (if
                        # present) and skips creation. See §6 "Disabling containers".
-  update_policy: string # optional. auto|manual. Default: auto. When "manual", check-update skips
+  update_policy: string # optional. auto|manual. Default: auto. When "manual", update skips
                         # this container entirely — no registry query, no --apply action. Use for
                         # images you intentionally hold at a specific version.
   command: [string]    # optional. Overrides image CMD.
@@ -232,13 +232,13 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | `containerctl apply [name...]`                                   | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. | 0 ok, 1 error, 2 partial failure         |
 | `containerctl diff [name...]`                                    | Show planned actions without making changes.                                                                                              | 0 no changes, 3 changes pending, 1 error |
 | `containerctl status [name...]`                                  | Show all managed containers, their state, drift, and uptime. `-o json\|yaml` adds network IPs, mount paths, image digest/size, and resource limits. | 0 ok, 1 error                            |
-| `containerctl check-update [name...] [--apply] [--follow]`       | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
-| `containerctl upgrade <name>`                                    | Force-pull and recreate one container even if config hash is unchanged. Use for floating tags (e.g. `:latest`).                           | 0 ok, 1 error                            |
-| `containerctl restart [name...] [--all] [--follow]`              | Stop, remove, recreate, and start containers from current config without pulling a new image. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
+| `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
+| `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
+| `containerctl restart <name...> \| --all [--follow]`             | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
 | `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
 | `containerctl down [name...]`                                    | Stop and remove managed containers. With no args, the whole project.                                                                      | 0 ok, 1 error                            |
-| `containerctl stop [name...] [--all]`                            | **Transient** stop. Container kept on disk. Next `apply` restarts it. Requires at least one name or `--all`.                              | 0 ok, 1 error                            |
-| `containerctl start [name...] [--all] [--follow]`                | Start a previously-stopped managed container without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
+| `containerctl stop <name...> \| --all`                           | Stop containers; they stay on disk and restart on next apply. Requires at least one name or `--all`.                                      | 0 ok, 1 error                            |
+| `containerctl start <name...> \| --all [--follow]`               | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
 | `containerctl enable <name...>`                                  | Removes from state file and reconciles the container (recreates if hash drifted, else starts).                                            | 0 ok, 1 error                            |
 | `containerctl logs <name> [--follow] [--tail N]`                 | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
@@ -248,18 +248,18 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
 | `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
 
-### `restart` vs `upgrade` vs `apply` vs `check-update --apply`
+### `restart` vs `repull` vs `apply` vs `update --apply`
 
-| Command                  | Pulls image        | Recreates always | Hash-driven | Updates stack.yaml |
-| ------------------------ | ------------------ | ---------------- | ----------- | ------------------ |
-| `apply`                  | yes (new)          | no               | yes         | no                 |
-| `upgrade`                | yes (force)        | yes              | no          | no                 |
-| `restart`                | no                 | yes              | no          | no                 |
-| `check-update --apply`   | yes (new tag/same) | yes              | no          | yes (patch only)   |
+| Command          | Pulls image        | Recreates always | Hash-driven | Updates stack.yaml |
+| ---------------- | ------------------ | ---------------- | ----------- | ------------------ |
+| `apply`          | yes (new)          | no               | yes         | no                 |
+| `repull`         | yes (force)        | yes              | no          | no                 |
+| `restart`        | no                 | yes              | no          | no                 |
+| `update --apply` | yes (new tag/same) | yes              | no          | yes (patch only)   |
 
-Use `restart` when you want a clean container from the cached image without any network pull (e.g. after editing a mounted config file). Use `upgrade` when the image tag floats and you need the latest pull. Use `check-update --apply` for automated patch/minor version upgrades — it rewrites the image tag in stack.yaml before recreating so the change is persistent.
+Use `restart` when you want a clean container from the cached image without any network pull (e.g. after editing a mounted config file). Use `repull` when the image tag floats and you need the latest pull. Use `update --apply` for automated patch/minor version upgrades — it rewrites the image tag in stack.yaml before recreating so the change is persistent.
 
-### `check-update` update detection
+### `update` update detection
 
 For **semver-tagged images** (e.g. `nginx:1.27.0`, `redis:7.2-alpine`), the check is pure registry-based and produces the same output regardless of which runtime is in use:
 
@@ -298,8 +298,7 @@ Pick the most declarative one that fits: prefer `disabled: true` in YAML for any
 - `--runtime docker|podman` — override YAML's `runtime:`.
 - `--socket PATH` — override default runtime socket (e.g. `/run/user/1000/podman/podman.sock`).
 - `-o, --output text|json|yaml` — output format. Default text. JSON and YAML are indented with 2 spaces.
-- `--no-color` — disable ANSI.
-- `-v, --verbose` — debug logs to stderr.
+- `--no-color` — disable ANSI colors (also respects the `NO_COLOR` environment variable).
 - `--project NAME` — override YAML's `project:` (use with care; affects which containers are considered managed).
 
 ### Output: `diff` / `apply` plan format
@@ -518,7 +517,7 @@ type Runtime interface {
     // disk scan). Returns a map of volume name → bytes; -1 when driver doesn't report.
     VolumeSizes(ctx context.Context) (map[string]int64, error)
 
-    // Image update detection (used by check-update)
+    // Image update detection (used by update)
     LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
     RemoteImageDigest(ctx context.Context, image string) (string, error)
     CheckTagUpdates(ctx context.Context, image string, max int) (*registry.TagUpdates, error)
@@ -769,7 +768,7 @@ containers:
 - **Multi-file includes.** `include: [./db.yaml, ./web.yaml]`.
 - **Schema versioning.** Top-level `apiVersion:` field.
 - **TUI status view.** `containerctl status --watch` with a refreshing table.
-- **`check-update` digest mode for semver tags.** Optionally also compare local digest against remote for pinned semver tags, to detect in-place re-pushes of the same tag (rare for versioned releases but possible).
+- **`update` digest mode for semver tags.** Optionally also compare local digest against remote for pinned semver tags, to detect in-place re-pushes of the same tag (rare for versioned releases but possible).
 
 ---
 
@@ -794,7 +793,7 @@ containerctl serve [flags]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--listen ADDR` | `:8080` | TCP address to listen on. |
+| `--address ADDR` | `:8080` | TCP address to listen on. |
 | `--token TOKEN` | — | **Required.** Shared auth token. Also read from `CONTAINERCTL_TOKEN` env var. If neither flag nor env is set, `serve` fails with an error. |
 | `--tls MODE` | `none` | TLS mode: `none`, `self-signed`, `letsencrypt`, or `custom`. |
 | `--tls-domain DOMAIN` | — | Public domain for Let's Encrypt. Required when `--tls=letsencrypt`. |
@@ -939,7 +938,7 @@ Allowed commands:
 | User input | Dispatch |
 |-----------|----------|
 | `apply [name...]` | subprocess |
-| `check-update [name...] [--apply] [--follow]` | subprocess |
+| `update [name...] [--apply] [--follow]` | subprocess |
 | `clear` | built-in: sends `{"type":"clear"}` |
 | `diff [name...]` | subprocess |
 | `disable <name...>` | subprocess |
@@ -948,16 +947,16 @@ Allowed commands:
 | `enable <name...>` | subprocess |
 | `exec <name> [cmd...]` | see below |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
-| `images [--unused]` | subprocess |
+| `images [name...] [--unused]` | subprocess |
 | `logs <name> [--follow] [--tail N]` | subprocess |
 | `networks [--unused]` | subprocess |
 | `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | subprocess |
 | `pull [name...]` | subprocess |
-| `restart [name...] [--all] [--follow]` | subprocess |
-| `start [name...] [--all] [--follow]` | subprocess |
+| `repull <name>` | subprocess |
+| `restart <name...> \| --all [--follow]` | subprocess |
+| `start <name...> \| --all [--follow]` | subprocess |
 | `status [name...]` | subprocess |
-| `stop [name...] [--all]` | subprocess |
-| `upgrade <name>` | subprocess |
+| `stop <name...> \| --all` | subprocess |
 | `use <path>` | built-in: updates session's active file |
 | `version` | subprocess |
 | `volumes [--unused] [--size]` | subprocess |
@@ -1192,15 +1191,15 @@ serve:
 
 ```bash
 # Plain HTTP (behind nginx/caddy proxy)
-CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --listen :9090 --file stack.yaml
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --address :9090 --file stack.yaml
 
 # Self-signed HTTPS (LAN access, browser warning expected)
 CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
-  --listen :9090 --tls self-signed --file stack.yaml
+  --address :9090 --tls self-signed --file stack.yaml
 
 # Let's Encrypt (publicly reachable server)
 CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
-  --listen :443 --tls letsencrypt --tls-domain containerctl.example.com --file stack.yaml
+  --address :443 --tls letsencrypt --tls-domain containerctl.example.com --file stack.yaml
 ```
 
 **Browser session flow:**

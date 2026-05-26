@@ -28,7 +28,7 @@ func init() {
 		RunE:  runVolumes,
 	}
 	cmd.Flags().BoolVar(&flagVolumesUnused, "unused", false, "show only volumes not mounted by any container")
-	cmd.Flags().BoolVar(&flagVolumesSize, "size", false, "fetch disk usage from the daemon (requires a daemon-side disk scan)")
+	cmd.Flags().BoolVar(&flagVolumesSize, "size", false, "show disk usage — triggers a daemon-side scan and may be slow")
 	rootCmd.AddCommand(cmd)
 }
 

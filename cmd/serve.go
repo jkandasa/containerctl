@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	flagServeListen     string
+	flagServeAddress    string
 	flagServeToken      string
 	flagServeTLS        string
 	flagServeTLSDomain  string
@@ -37,7 +37,7 @@ Authentication token is read from --token or CONTAINERCTL_TOKEN env var.`,
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().StringVar(&flagServeListen, "listen", ":8080", "listen address")
+	serveCmd.Flags().StringVar(&flagServeAddress, "address", ":8080", "address to listen on (e.g. :8080 or 127.0.0.1:9090)")
 	serveCmd.Flags().StringVar(&flagServeToken, "token", "", "auth token (or set CONTAINERCTL_TOKEN env var)")
 	serveCmd.Flags().StringVar(&flagServeTLS, "tls", "none", "TLS mode: none | self-signed | letsencrypt | custom")
 	serveCmd.Flags().StringVar(&flagServeTLSDomain, "tls-domain", "", "public domain for Let's Encrypt")
@@ -83,7 +83,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	srv := web.New(web.Config{
-		Listen:      flagServeListen,
+		Listen:      flagServeAddress,
 		Token:       token,
 		TLSMode:     flagServeTLS,
 		TLSDomain:   flagServeTLSDomain,

@@ -13,8 +13,8 @@ import (
 )
 
 var upgradeCmd = &cobra.Command{
-	Use:   "upgrade <name>",
-	Short: "Force-pull and recreate a container regardless of config hash",
+	Use:   "repull <name>",
+	Short: "Force-pull the image and recreate a container, bypassing the config hash",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runUpgrade,
 }

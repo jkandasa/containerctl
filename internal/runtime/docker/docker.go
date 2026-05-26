@@ -430,7 +430,7 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 
 func (c *Client) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.ReadCloser, error) {
 	tail := "all"
-	if opts.Tail > 0 {
+	if opts.Tail >= 0 {
 		tail = strconv.Itoa(opts.Tail)
 	}
 	since := ""

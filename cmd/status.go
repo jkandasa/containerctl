@@ -48,6 +48,10 @@ type liveData struct {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	if cmd.Flags().Changed("interval") && !flagWatch {
+		return fmt.Errorf("--interval requires --watch")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

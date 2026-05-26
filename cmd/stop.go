@@ -14,8 +14,8 @@ import (
 var flagStopAll bool
 
 var stopCmd = &cobra.Command{
-	Use:   "stop [name...]",
-	Short: "Transient stop — container kept on disk; next apply restarts it",
+	Use:   "stop <name...> | --all",
+	Short: "Stop containers; they stay on disk and restart on next apply",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runStop,
 }

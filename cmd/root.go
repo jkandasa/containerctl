@@ -20,7 +20,6 @@ var (
 	flagSocket  string
 	flagOutput  string
 	flagNoColor bool
-	flagVerbose bool
 	flagProject string
 )
 
@@ -41,8 +40,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagRuntime, "runtime", "", "container runtime: docker|podman (overrides YAML)")
 	rootCmd.PersistentFlags().StringVar(&flagSocket, "socket", "", "override runtime socket path")
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "text", "output format: text|json|yaml")
-	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "disable ANSI colors")
-	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "disable ANSI color output (also respects NO_COLOR env var)")
 	rootCmd.PersistentFlags().StringVar(&flagProject, "project", "", "override project name from YAML")
 }
 
@@ -74,7 +72,7 @@ func runtimeFrom(stack *config.Stack) (rt.Runtime, error) {
 }
 
 func colors() render.Colors {
-	if flagNoColor {
+	if flagNoColor || os.Getenv("NO_COLOR") != "" {
 		return render.NoColors()
 	}
 	return render.ANSIColors()

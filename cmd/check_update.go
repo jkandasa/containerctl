@@ -24,15 +24,26 @@ var (
 )
 
 var checkUpdateCmd = &cobra.Command{
-	Use:   "check-update [name...]",
-	Short: "Check registry for updates; --apply applies patch/minor updates and digest changes",
-	RunE:  runCheckUpdate,
+	Use:   "update [name...]",
+	Short: "Check registry for image updates",
+	Long: `Check all (or named) containers against their registry for newer images.
+
+Semver-tagged images are compared by version; floating tags (latest, edge, …)
+are compared by digest. Manual-policy containers are reported but never applied.
+
+Use --apply to automatically pull and recreate containers with patch or minor
+updates and digest changes. Major version bumps always require a manual tag
+change in stack.yaml.
+
+Use --follow with --apply and a single container name to stream logs immediately
+after the container is recreated.`,
+	RunE: runCheckUpdate,
 }
 
 func init() {
 	rootCmd.AddCommand(checkUpdateCmd)
 	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateApply, "apply", false, "pull and recreate containers with patch/minor updates or digest changes")
-	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateFollow, "follow", false, "follow logs after applying (requires --apply and exactly one container)")
+	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateFollow, "follow", false, "stream logs after applying (requires --apply and a single container name)")
 }
 
 type imageUpdateStatus struct {

@@ -17,8 +17,8 @@ var (
 )
 
 var startCmd = &cobra.Command{
-	Use:   "start [name...]",
-	Short: "Start a stopped managed container without reconciling",
+	Use:   "start <name...> | --all",
+	Short: "Start stopped containers without reconciling",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runStart,
 }

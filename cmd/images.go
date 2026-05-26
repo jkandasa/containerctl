@@ -20,7 +20,7 @@ var flagImagesUnused bool
 
 func init() {
 	cmd := &cobra.Command{
-		Use:   "images",
+		Use:   "images [name...]",
 		Short: "List local container images",
 		RunE:  runImages,
 	}
@@ -65,6 +65,11 @@ func runImages(cmd *cobra.Command, args []string) error {
 
 	if flagImagesUnused {
 		imgs = unusedImages(ctrs, stack, imgs)
+	}
+
+	// Filter by name/tag substring when positional args are given.
+	if len(args) > 0 {
+		imgs = filterImagesByName(imgs, args)
 	}
 
 	return printImages(imgs, imageCtrMap, imageCtrRefMap)
@@ -139,6 +144,31 @@ func unusedImages(ctrs []rt.ContainerInfo, stack *config.Stack, imgs []rt.ImageI
 		}
 		if !used {
 			out = append(out, img)
+		}
+	}
+	return out
+}
+
+// filterImagesByName returns images whose ID or any tag contains any of the given terms.
+func filterImagesByName(imgs []rt.ImageInfo, terms []string) []rt.ImageInfo {
+	out := imgs[:0]
+	for _, img := range imgs {
+		for _, term := range terms {
+			if strings.Contains(img.ID, term) {
+				out = append(out, img)
+				break
+			}
+			matched := false
+			for _, tag := range img.Tags {
+				if strings.Contains(tag, term) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				out = append(out, img)
+				break
+			}
 		}
 	}
 	return out

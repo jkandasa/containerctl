@@ -18,8 +18,8 @@ var (
 )
 
 var restartCmd = &cobra.Command{
-	Use:   "restart [name...]",
-	Short: "Stop, remove, recreate, and start containers from current config",
+	Use:   "restart <name...> | --all",
+	Short: "Recreate containers from current config (stop, remove, create, start)",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runRestart,
 }

@@ -13,7 +13,7 @@ Running containers on a single host usually means a pile of shell scripts — on
 
 - **Drift detection.** `diff` and `status` show exactly what's out of sync before you touch anything.
 - **Hash-driven reconciliation.** Only recreates a container when its config actually changed.
-- **Update awareness.** `check-update` queries the registry for newer semver tags and digest changes. `--apply` upgrades patch versions automatically.
+- **Update awareness.** `update` queries the registry for newer semver tags and digest changes. `--apply` upgrades patch versions automatically.
 - **Safe by default.** Never touches containers it doesn't own. Partial `apply` never removes unrelated containers.
 - **Docker and Podman.** Same tool, same YAML, same behaviour on either runtime.
 
@@ -76,25 +76,25 @@ containerctl status    # see running state and sync status
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
 | `status [name...] [--stats] [--watch]` | Show image, state, ports, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps. |
-| `check-update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
-| `upgrade <name>` | Force-pull and recreate one container regardless of config hash. |
-| `restart [name...] \| --all [--follow]` | Stop, remove, recreate, and start from current config — no pull. `--follow` streams logs after restart (single container only). |
+| `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
+| `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |
+| `restart <name...> \| --all [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
 | `down [name...]` | Stop and remove managed containers. No names = whole project. |
-| `stop <name...> \| --all` | Transient stop. Container kept on disk; next `apply` restarts it. |
-| `start <name...> \| --all [--follow]` | Start a stopped container without reconciling. `--follow` streams logs after start (single container only). |
+| `stop <name...> \| --all` | Stop containers; they stay on disk and restart on next apply. |
+| `start <name...> \| --all [--follow]` | Start stopped containers without reconciling. `--follow` streams logs after start (single container only). |
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...>` | Remove from state file and reconcile. |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
-| `logs <name> [--follow] [--tail N]` | Stream container logs. |
+| `logs <name> [--follow] [--tail N]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. |
 | `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
 | `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
 | `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
-| `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
+| `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused host-wide resources (not project-scoped). `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
-Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color`, `-v`.
+Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
 
 ### Web terminal (`serve`)
 
@@ -102,7 +102,7 @@ Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podma
 
 ```bash
 # Plain HTTP (behind a TLS-terminating proxy)
-CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --listen :9090 --file stack.yaml
+CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --address :9090 --file stack.yaml
 
 # Self-signed HTTPS (LAN, browser warning expected)
 CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --tls self-signed --file stack.yaml
@@ -114,7 +114,7 @@ CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--listen ADDR` | `:8080` | TCP address to listen on. |
+| `--address ADDR` | `:8080` | TCP address to listen on. |
 | `--token TOKEN` | — | Required. Also read from `CONTAINERCTL_TOKEN` env var. |
 | `--tls MODE` | `none` | `none` \| `self-signed` \| `letsencrypt` \| `custom` |
 | `--tls-domain DOMAIN` | — | Public domain (required for `letsencrypt`). |
@@ -289,7 +289,7 @@ Aliases are registered on every network the container joins. Adding, removing, o
 ## Update detection
 
 ```sh
-containerctl check-update
+containerctl update
 
 NAME        IMAGE                STATUS        NOTE
 postgres    postgres:16           patch update  16.1, 16.2, 16.3; major: 17.0.0
@@ -327,7 +327,7 @@ auth_file: /run/secrets/registry-auth.json
 
 `auth_file` overrides auto-detected credentials for the same registry, but credentials from auto-detected files for other registries remain available. The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
 
-Credentials are used by `pull`, `apply`, `upgrade`, `check-update`, and remote digest checks — all registry operations go through the same credential resolution.
+Credentials are used by `pull`, `apply`, `repull`, `update`, and remote digest checks — all registry operations go through the same credential resolution.
 
 ---
 
@@ -367,7 +367,7 @@ containers:
   - name: string         # required.
     image: string        # required. e.g. postgres:16
     disabled: bool       # optional. apply removes the container and skips creation.
-    update_policy: auto|manual  # optional. manual = skip check-update entirely.
+    update_policy: auto|manual  # optional. manual = skip update entirely.
     restart: no|on-failure|always|unless-stopped
     ports:
       - "HOST:CONTAINER"

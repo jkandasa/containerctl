@@ -25,8 +25,8 @@ var (
 func init() {
 	cmd := &cobra.Command{
 		Use:   "prune",
-		Short: "Remove unused images, volumes, and/or networks",
-		Long: `Remove unused local resources.
+		Short: "Remove unused host-wide images, volumes, and/or networks",
+		Long: `Remove unused local resources from the host (not project-scoped).
 
 Flags select which resource types to prune:
   --images    images not used by any container or stack declaration

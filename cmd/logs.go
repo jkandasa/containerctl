@@ -27,7 +27,7 @@ var logsCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(logsCmd)
 	logsCmd.Flags().BoolVar(&flagLogsFollow, "follow", false, "follow log output")
-	logsCmd.Flags().IntVar(&flagLogsTail, "tail", 0, "number of lines from end to show (0 = all)")
+	logsCmd.Flags().IntVar(&flagLogsTail, "tail", -1, "lines from the end to show (-1 = all, 0 = none)")
 }
 
 func followContainerLogs(ctx context.Context, runtime rt.Runtime, stack *config.Stack, name string) error {

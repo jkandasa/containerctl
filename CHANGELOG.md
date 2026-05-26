@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `images [name...]` — positional arguments now filter images by name or tag substring.
+- `NO_COLOR` environment variable is now honoured in addition to `--no-color`.
+
+### Changed
+- `check-update` renamed to `update` — shorter and less redundant (it already implies checking).
+- `upgrade` renamed to `repull` — unambiguous: force-pulls the image and recreates the container without consulting the config hash.
+- `stop`, `start`, `restart` Use strings updated to `<name...> | --all` to make it clear that at least one name or `--all` is required.
+- `restart` Short description updated to "Recreate containers from current config (stop, remove, create, start)".
+- `start` Short description updated to "Start stopped containers without reconciling".
+- `stop` Short description updated to "Stop containers; they stay on disk and restart on next apply".
+- `logs --tail` default changed from `0` to `-1`; semantics are now `-1` = all lines (default), `0` = no lines, `N` = last N lines. Previously `0` meant all, which was counter-intuitive.
+- `--interval` on `status` now returns an error when used without `--watch`.
+- `prune` Short and Long descriptions now say "host-wide" to make clear the command is not project-scoped.
+- `volumes --size` description leads with the cost ("triggers a daemon-side scan; may be slow") rather than burying it.
+- `serve --address` description now includes usage examples (`:8080` or `127.0.0.1:9090`).
+- Removed phantom `--verbose / -v` flag (was registered but never acted on).
+- Web terminal help text and command allowlist updated to reflect renames (`check-update` → `update`, `upgrade` → `repull`).
+
 ---
 
 ## [v1.6.0] - 2026-05-26
