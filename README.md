@@ -126,6 +126,7 @@ CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
 
 - All `containerctl` commands available in the browser terminal.
 - Tab-completes command names and container names.
+- Color themes: dark (default) / light / auto (follows system preference). Toggle button in the top bar; persists across reloads and also affects the login page and editor.
 - `edit` — opens the active stack file in a full-screen vim-style editor (YAML syntax highlighting, vim keybindings, concurrent-edit protection). Keys: `:w` / `Ctrl+S` save · `:wq` / `:x` save+quit · `:q` quit · `:q!` / `Ctrl+Q` force-quit. Requires `serve.edit.enabled: true`.
 - `use /path/to/other-stack.yaml` — switch the active stack file for the current session without restarting the server. Requires `serve.use.enabled: true`.
 - `exec <container> bash` — opens a full interactive PTY session in the browser. Requires `serve.exec.enabled: true`.

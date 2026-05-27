@@ -13,9 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `images [name...]` — positional arguments now filter images by name or tag substring.
 - `NO_COLOR` environment variable is now honoured in addition to `--no-color`.
 - `images`, `volumes`, `networks`, and `prune` no longer require a `stack.yaml` to be present. The runtime is determined from `--runtime`/`--socket` flags (defaulting to Docker). If a stack file is found it is still used for runtime/socket settings; `images --unused` and `prune --images` will also cross-reference stack declarations when a file is present.
+- Web terminal now supports **color themes**: `dark` (default), `light`, and `auto` (follows system `prefers-color-scheme`). A toggle button (◐/☾/☼) is available in the top bar; the choice is persisted in localStorage and applies to the terminal (xterm), editor (CodeMirror), and login page.
 
 ### Fixed
 - **Critical:** `containerctl.config-hash` labels were non-deterministic for any container using `env:` or `labels:` (map key iteration order in JSON). This caused unnecessary container recreation on every `apply` after a tool restart. Hash computation is now stable across runs.
+- Container names were missing from tab completion in the web terminal (regression after syntax highlighting was added). Internal `status --output json` calls used for completion now always receive clean JSON.
+- Expired or invalid sessions on long-lived WebSocket connections (terminal, exec, logs) now properly redirect the browser to `/login?error=expired` with a clear message instead of showing a stuck error.
 
 ### Changed
 - `--output` flag default value changed from `text` to `console` (`-o console|json|yaml`). The behaviour is identical; `console` better describes the formatted table output.
@@ -32,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `serve --address` description now includes usage examples (`:8080` or `127.0.0.1:9090`).
 - Removed phantom `--verbose / -v` flag (was registered but never acted on).
 - Web terminal help text and command allowlist updated to reflect renames (`check-update` → `update`, `upgrade` → `repull`).
+- Web terminal UI/UX improvements: active stack filename now shown in top bar, better initial spacing, improved focus styles, reconnect link on disconnect, more informative login error messages (including session expiry), and various polish.
 
 ---
 

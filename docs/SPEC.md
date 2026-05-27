@@ -870,6 +870,7 @@ All session-protected routes return `302 /login` (not 401) for browser navigatio
 - Cookie name: `containerctl_session`. Attributes: `HttpOnly; SameSite=Strict; Path=/`. `Secure` flag added when TLS mode is not `none`.
 - TTL enforced at read time: expired sessions are treated as absent and lazily reaped.
 - Token comparison: `subtle.ConstantTimeCompare` to prevent timing attacks.
+- **Long-lived connection re-validation**: WebSocket handlers (`/ws/terminal`, `/ws/exec`, `/ws/logs`) re-validate the session on upgrade and on every inbound message. An invalid/expired session sends a `session_invalid` message; the client redirects to `/login?error=expired`.
 - **Brute-force protection**: per-IP failure tracking. After 5 consecutive failed login attempts the IP is blocked for 30 seconds. The login page shows a countdown timer and disables the form during the block. Block resets after the 30 s window expires. The client IP is read from the `X-Forwarded-For` header when present.
 
 ```go
@@ -1064,20 +1065,30 @@ Embedded pages served via `//go:embed` from `internal/web/assets/`.
 **Login page (`login.html`):**
 
 - Centered card: "containerctl" heading, single `<input type="password" name="token">` field, submit button.
-- Error rendering: `?error=blocked&sec=N` shows a countdown timer and disables the form during the block window; `?error=1` shows "Invalid token".
-- JavaScript countdown re-enables the form when the block expires.
-- Minimal CSS: dark background, monospace font.
+- Error rendering:
+  - `?error=1` → "Invalid token. Please try again."
+  - `?error=expired` → "Your session has expired. Please sign in again."
+  - `?error=blocked&sec=N` → countdown timer + form disabled for the rate-limit window.
+- JavaScript countdown re-enables the form when a block expires.
+- Respects the user's chosen color theme (see Terminal page below).
+- Minimal CSS using CSS custom properties for theming.
 
 **Terminal page (`terminal.html`):**
 
-- Full-viewport dark terminal rendered by xterm.js v5.3.0 + FitAddon (embedded assets, not CDN).
-- **Top bar:** project title on the left; exec badge (amber, shown only during exec sessions) in the middle; Logout button pushed to the right.
+- Full-viewport terminal rendered by xterm.js v5.3.0 + FitAddon (embedded assets, not CDN).
+- **Color themes:** Supports three modes — `dark` (default), `light`, and `auto` (follows `prefers-color-scheme`). A theme toggle button (◐ / ☾ / ☼) lives in the top bar. Selection is persisted in `localStorage` and applied on load. The theme affects:
+  - xterm.js terminal colors
+  - CodeMirror editor (syntax highlighting, UI elements)
+  - Login page
+  - All status bars, badges, and chrome
+- **Top bar:** "containerctl" title on the left, current stack filename pill (basename, updates on `use`), exec badge (amber, shown only during exec sessions), theme toggle button, and Logout button on the right.
 - **Dynamic prompt:** set by the `prompt` server message. Default `containerctl [stack.yaml]> ` (basename of active file). Updates after `use`.
 - **Tab completion:** two-level. First Tab shows completions; second Tab cycles. Completes: command names (from `ALL_CMDS`) and container names (from the `names` server message). Also completes command flags when the partial input matches a command.
 - **Command history:** up/down arrow recalls previous commands (client-side JS array, not sent to server).
 - **Exec mode:** when the server sends `exec_open`, the client opens `/ws/exec` as a second WebSocket. While open: `term.onData` forwards all keystrokes and paste events to the PTY; `term.onKey` is suppressed; the top bar shows an amber badge with container name and command; the border turns amber. An "Exit" button sends Ctrl+D. On exec WS close, the client sends `{"type":"resize",…}` to restore the terminal to its current dimensions and re-renders the main prompt.
 - **Browser editor (`edit` command):** full-screen overlay using CodeMirror 5 with vim keymap and YAML syntax highlighting. Crosshair (horizontal active-line + vertical column highlight via CSS `--cur-x` variable). Status bar shows vim mode (NORMAL/INSERT/VISUAL) and cursor position. Keys: `:w` / `Ctrl+S` save; `:wq` / `:x` save+quit; `:q` quit (blocked with unsaved changes); `:q!` / `Ctrl+Q` force-quit discarding changes. Ex-commands require the CodeMirror dialog addon (`codemirror-dialog.js`) which is loaded before the vim keymap. ETag-based concurrent edit protection: 409 from the server shows a red "conflict" warning; unsaved edits are preserved.
 - **`clear` message:** calls `term.clear()`.
+- **Disconnect handling:** On unexpected WebSocket close, shows a "Reconnect" link in addition to the disconnect message. Session expiry on long-lived connections redirects the page to `/login?error=expired`.
 
 **Static assets build step:**
 
