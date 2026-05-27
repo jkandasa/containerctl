@@ -14,7 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NO_COLOR` environment variable is now honoured in addition to `--no-color`.
 - `images`, `volumes`, `networks`, and `prune` no longer require a `stack.yaml` to be present. The runtime is determined from `--runtime`/`--socket` flags (defaulting to Docker). If a stack file is found it is still used for runtime/socket settings; `images --unused` and `prune --images` will also cross-reference stack declarations when a file is present.
 
+### Fixed
+- **Critical:** `containerctl.config-hash` labels were non-deterministic for any container using `env:` or `labels:` (map key iteration order in JSON). This caused unnecessary container recreation on every `apply` after a tool restart. Hash computation is now stable across runs.
+
 ### Changed
+- `--output` flag default value changed from `text` to `console` (`-o console|json|yaml`). The behaviour is identical; `console` better describes the formatted table output.
 - `check-update` renamed to `update` — shorter and less redundant (it already implies checking).
 - `upgrade` renamed to `repull` — unambiguous: force-pulls the image and recreates the container without consulting the config hash.
 - `stop`, `start`, `restart` Use strings updated to `<name...> | --all` to make it clear that at least one name or `--all` is required.

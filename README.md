@@ -94,7 +94,7 @@ containerctl status    # see running state and sync status
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
-Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o text|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
+Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
 
 ### Web terminal (`serve`)
 
@@ -156,7 +156,7 @@ When stdin is a terminal, a PTY is allocated and the terminal is put into raw mo
 
 ### Structured output
 
-`-o json` and `-o yaml` emit richer data than the text table. All JSON and YAML output is indented with 2 spaces.
+`-o json` and `-o yaml` emit richer data than the console table. All JSON and YAML output is indented with 2 spaces.
 
 ```yaml
 # containerctl status -o yaml

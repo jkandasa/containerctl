@@ -297,7 +297,7 @@ Pick the most declarative one that fits: prefer `disabled: true` in YAML for any
 - `-f, --file PATH` — YAML path. Default `./stack.yaml`.
 - `--runtime docker|podman` — override YAML's `runtime:`.
 - `--socket PATH` — override default runtime socket (e.g. `/run/user/1000/podman/podman.sock`).
-- `-o, --output text|json|yaml` — output format. Default text. JSON and YAML are indented with 2 spaces.
+- `-o, --output console|json|yaml` — output format. Default console. JSON and YAML are indented with 2 spaces.
 - `--no-color` — disable ANSI colors (also respects the `NO_COLOR` environment variable).
 - `--project NAME` — override YAML's `project:` (use with care; affects which containers are considered managed).
 
@@ -331,7 +331,7 @@ After printing the plan, `apply` streams one line per container immediately as e
 
 Networks are printed similarly (`network <name>  created` / `network <name>  removed`).
 
-### Output: `status` text format
+### Output: `status` console format
 
 ```
 NAME       STATE         IMAGE            UPTIME    DRIFT

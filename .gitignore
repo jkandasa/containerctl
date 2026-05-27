@@ -14,3 +14,10 @@ internal/web/assets/codemirror-dialog.js
 internal/web/assets/codemirror-dialog.css
 internal/web/assets/codemirror-vim.js
 internal/web/assets/codemirror-yaml.js
+
+# Grok Build TUI / local AI agent configuration
+.grok/
+
+# Local sample / scratch directories (often created by AI tools or for testing)
+sample/
+samples/

@@ -29,42 +29,42 @@
 
     // All known containerctl commands for tab completion.
     const ALL_CMDS = [
-      'apply', 'check-update', 'clear', 'diff', 'disable', 'down',
+      'apply', 'clear', 'diff', 'disable', 'down',
       'edit', 'enable', 'exec', 'help', 'images', 'logs', 'networks',
-      'prune', 'pull', 'restart', 'start', 'status', 'stop', 'upgrade',
+      'prune', 'pull', 'repull', 'restart', 'start', 'status', 'stop', 'update',
       'use', 'version', 'volumes',
     ];
 
     // Per-command flags (command-specific only; global flags always appended).
     const CMD_FLAGS = {
-      'apply':        [],
-      'check-update': ['--apply'],
-      'clear':        [],
-      'diff':         [],
-      'disable':      [],
-      'down':         [],
-      'edit':         [],
-      'enable':       [],
-      'exec':         [],
-      'help':         [],
-      'images':       ['--unused'],
-      'logs':         ['--follow', '--tail'],
-      'networks':     ['--unused'],
-      'prune':        ['--images', '--volumes', '--networks', '--all', '--dry-run', '--force'],
-      'pull':         [],
-      'restart':      ['--all'],
-      'start':        ['--all'],
-      'status':       ['--stats', '--watch', '--interval'],
-      'stop':         ['--all'],
-      'upgrade':      [],
-      'use':          [],
-      'version':      [],
-      'volumes':      ['--unused'],
+      'apply':    [],
+      'clear':    [],
+      'diff':     [],
+      'disable':  [],
+      'down':     [],
+      'edit':     [],
+      'enable':   [],
+      'exec':     [],
+      'help':     [],
+      'images':   ['--unused'],
+      'logs':     ['--follow', '--tail'],
+      'networks': ['--unused'],
+      'prune':    ['--images', '--volumes', '--networks', '--all', '--dry-run', '--force'],
+      'pull':     [],
+      'repull':   [],
+      'restart':  ['--all', '--follow'],
+      'start':    ['--all', '--follow'],
+      'status':   ['--stats', '--watch', '--interval'],
+      'stop':     ['--all'],
+      'update':   ['--apply', '--follow'],
+      'use':      [],
+      'version':  [],
+      'volumes':  ['--unused', '--size'],
     };
 
     // Global flags available on every command.
     const GLOBAL_FLAGS = [
-      '--file', '--no-color', '--output', '--project', '--runtime', '--socket', '--verbose',
+      '--file', '--no-color', '--output', '--project', '--runtime', '--socket',
     ];
 
     // ── CodeMirror lazy loader ──────────────────────────────────────────────────

@@ -39,7 +39,7 @@ func followContainerLogs(ctx context.Context, runtime rt.Runtime, stack *config.
 	if info == nil {
 		return fmt.Errorf("container %q not found", name)
 	}
-	rc, err := runtime.Logs(ctx, info.ID, rt.LogOptions{Follow: true})
+	rc, err := runtime.Logs(ctx, info.ID, rt.LogOptions{Follow: true, Tail: -1})
 	if err != nil {
 		return err
 	}

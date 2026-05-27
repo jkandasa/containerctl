@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -8,23 +9,64 @@ import (
 	"strings"
 )
 
+// sortedStringMap is a map[string]string that marshals to JSON with keys
+// always sorted. This is required to produce a stable hash regardless of
+// map iteration order (which is randomized by the Go runtime).
+type sortedStringMap map[string]string
+
+func (m sortedStringMap) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte("null"), nil
+	}
+	if len(m) == 0 {
+		return []byte("{}"), nil
+	}
+
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		vb, err := json.Marshal(m[k])
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(kb)
+		buf.WriteByte(':')
+		buf.Write(vb)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
 // hashable is the normalized form of a Container used for hashing.
 // Disabled is excluded — toggling it must not trigger a recreate.
 type hashable struct {
-	Image         string            `json:"image"`
-	Command       []string          `json:"command,omitempty"`
-	Entrypoint    []string          `json:"entrypoint,omitempty"`
-	Restart       string            `json:"restart"`
-	Ports         []string          `json:"ports,omitempty"`
-	Volumes       []string          `json:"volumes,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Networks       []string          `json:"networks,omitempty"`
-	NetworkAliases []string          `json:"network_aliases,omitempty"`
-	CPUs          string            `json:"cpus,omitempty"`
-	Memory        string            `json:"memory,omitempty"`
-	PidsLimit     int64             `json:"pids_limit,omitempty"`
-	Healthcheck   *hashHealthcheck  `json:"healthcheck,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
+	Image         string          `json:"image"`
+	Command       []string        `json:"command,omitempty"`
+	Entrypoint    []string        `json:"entrypoint,omitempty"`
+	Restart       string          `json:"restart"`
+	Ports         []string        `json:"ports,omitempty"`
+	Volumes       []string        `json:"volumes,omitempty"`
+	Env           sortedStringMap `json:"env,omitempty"`
+	Networks       []string        `json:"networks,omitempty"`
+	NetworkAliases []string        `json:"network_aliases,omitempty"`
+	CPUs          string          `json:"cpus,omitempty"`
+	Memory        string          `json:"memory,omitempty"`
+	PidsLimit     int64           `json:"pids_limit,omitempty"`
+	Healthcheck   *hashHealthcheck `json:"healthcheck,omitempty"`
+	Labels        sortedStringMap `json:"labels,omitempty"`
 	User          string            `json:"user,omitempty"`
 	WorkingDir    string            `json:"working_dir,omitempty"`
 	Hostname      string            `json:"hostname,omitempty"`
@@ -76,7 +118,7 @@ func normalize(c *Container) hashable {
 
 	// copy env (already resolved from env_file by Load)
 	if len(c.Env) > 0 {
-		h.Env = make(map[string]string, len(c.Env))
+		h.Env = make(sortedStringMap, len(c.Env))
 		for k, v := range c.Env {
 			h.Env[k] = v
 		}
@@ -84,7 +126,7 @@ func normalize(c *Container) hashable {
 
 	// copy labels, excluding any containerctl.* keys
 	if len(c.Labels) > 0 {
-		h.Labels = make(map[string]string)
+		h.Labels = make(sortedStringMap)
 		for k, v := range c.Labels {
 			if !strings.HasPrefix(k, "containerctl.") {
 				h.Labels[k] = v

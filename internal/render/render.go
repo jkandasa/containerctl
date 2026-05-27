@@ -15,9 +15,9 @@ import (
 type Format string
 
 const (
-	FormatText Format = "text"
-	FormatJSON Format = "json"
-	FormatYAML Format = "yaml"
+	FormatConsole Format = "console"
+	FormatJSON    Format = "json"
+	FormatYAML    Format = "yaml"
 )
 
 type Colors struct {
