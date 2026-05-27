@@ -20,6 +20,8 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/moby/term"
 
+	cerrdefs "github.com/containerd/errdefs"
+
 	"github.com/jkandasa/containerctl/internal/registry"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
@@ -69,9 +71,9 @@ func (c *Client) EngineVersion(ctx context.Context) (rt.EngineInfo, error) {
 }
 
 func (c *Client) LocalImageMeta(ctx context.Context, img string) (rt.ImageMeta, error) {
-	info, _, err := c.cli.ImageInspectWithRaw(ctx, img)
+	info, err := c.cli.ImageInspect(ctx, img)
 	if err != nil {
-		if dockerclient.IsErrNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			return rt.ImageMeta{}, nil
 		}
 		return rt.ImageMeta{}, fmt.Errorf("inspect image %s: %w", img, err)
@@ -280,7 +282,7 @@ func (c *Client) RemoveContainer(ctx context.Context, id string, force bool) err
 func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.ContainerInfo, error) {
 	info, err := c.cli.ContainerInspect(ctx, nameOrID)
 	if err != nil {
-		if dockerclient.IsErrNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -603,10 +605,7 @@ func (c *Client) ListImages(ctx context.Context) ([]rt.ImageInfo, error) {
 	}
 	out := make([]rt.ImageInfo, 0, len(imgs))
 	for _, img := range imgs {
-		id := img.ID
-		if strings.HasPrefix(id, "sha256:") {
-			id = id[7:]
-		}
+		id := strings.TrimPrefix(img.ID, "sha256:")
 		if len(id) > 12 {
 			id = id[:12]
 		}
