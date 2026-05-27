@@ -318,6 +318,9 @@ func parseMounts(volumes []string) ([]rt.Mount, error) {
 }
 
 func parseMount(s string) (rt.Mount, error) {
+	if strings.TrimSpace(s) == "" {
+		return rt.Mount{}, fmt.Errorf("volume spec cannot be empty")
+	}
 	parts := strings.SplitN(s, ":", 3)
 	switch len(parts) {
 	case 1:
