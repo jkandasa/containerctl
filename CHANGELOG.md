@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.7.0] - 2026-05-27
+
 ### Added
 - `images [name...]` — positional arguments now filter images by name or tag substring.
 - `NO_COLOR` environment variable is now honoured in addition to `--no-color`.
