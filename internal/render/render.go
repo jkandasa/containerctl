@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,24 +23,30 @@ const (
 )
 
 type Colors struct {
-	Reset  string
-	Green  string
-	Yellow string
-	Red    string
-	Cyan   string
-	Gray   string
+	Reset       string
+	Green       string
+	Yellow      string
+	Red         string
+	Cyan        string
+	Blue        string
+	Magenta     string
+	Gray        string
+	Punctuation string // Used for brackets, colons, commas etc. in JSON/YAML
 }
 
 func NoColors() Colors { return Colors{} }
 
 func ANSIColors() Colors {
 	return Colors{
-		Reset:  "\033[0m",
-		Green:  "\033[32m",
-		Yellow: "\033[33m",
-		Red:    "\033[31m",
-		Cyan:   "\033[36m",
-		Gray:   "\033[90m",
+		Reset:       "\033[0m",
+		Green:       "\033[32m",
+		Yellow:      "\033[33m",
+		Red:         "\033[31m",
+		Cyan:        "\033[36m",
+		Blue:        "\033[34m",
+		Magenta:     "\033[35m",
+		Gray:        "\033[90m",
+		Punctuation: "\033[2;37m", // Dim white — less dull than pure gray for structure
 	}
 }
 
@@ -162,13 +170,9 @@ type StatusEntry struct {
 func Status(w io.Writer, entries []StatusEntry, format Format, colors Colors) {
 	switch format {
 	case FormatJSON:
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(entries)
+		_ = JSON(w, entries, colors)
 	case FormatYAML:
-		enc := yaml.NewEncoder(w)
-		enc.SetIndent(2)
-		_ = enc.Encode(entries)
+		_ = YAML(w, entries, colors)
 	default:
 		renderStatusText(w, entries, colors)
 	}
@@ -325,4 +329,285 @@ func FormatUptime(t time.Time) string {
 		return fmt.Sprintf("%dh %dm", hours, mins)
 	}
 	return fmt.Sprintf("%dm", mins)
+}
+
+// JSON writes the value as pretty-printed JSON.
+// When colors are enabled, it applies syntax highlighting for keys, strings,
+// numbers, booleans, and null values.
+func JSON(w io.Writer, v any, colors Colors) error {
+	// Always marshal to JSON first, then unmarshal to a generic structure.
+	// This ensures colorJSON always receives map[string]any / []any / primitives,
+	// so coloring works reliably for both custom structs and maps.
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	var generic any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return err
+	}
+
+	if colors.Reset == "" {
+		// No colors — just pretty print the generic form
+		b, err := json.MarshalIndent(generic, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(append(b, '\n'))
+		return err
+	}
+
+	colored := colorJSON(generic, colors)
+	_, err = w.Write(colored)
+	return err
+}
+
+// colorJSON builds colored pretty JSON by walking the value directly.
+// This is the reliable way (avoids fragile regex post-processing on ANSI strings).
+func colorJSON(v any, c Colors) []byte {
+	if c.Reset == "" {
+		b, _ := json.MarshalIndent(v, "", "  ")
+		return append(b, '\n')
+	}
+
+	var buf strings.Builder
+	writeColoredJSON(&buf, v, c, 0)
+	buf.WriteByte('\n')
+	return []byte(buf.String())
+}
+
+func writeColoredJSON(buf *strings.Builder, v any, c Colors, indent int) {
+	indentStr := strings.Repeat("  ", indent)
+
+	switch val := v.(type) {
+	case map[string]any:
+		if len(val) == 0 {
+			buf.WriteString(c.Punctuation + "{}" + c.Reset)
+			return
+		}
+		buf.WriteString(c.Punctuation + "{" + c.Reset + "\n")
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for i, k := range keys {
+			buf.WriteString(indentStr + "  ")
+			buf.WriteString(c.Cyan + `"` + k + `"` + c.Reset) // key
+			buf.WriteString(c.Punctuation + ":" + c.Reset + " ")
+			writeColoredJSON(buf, val[k], c, indent+1)
+			if i < len(keys)-1 {
+				buf.WriteString(c.Punctuation + "," + c.Reset)
+			}
+			buf.WriteString("\n")
+		}
+		buf.WriteString(c.Punctuation + "}" + c.Reset)
+
+	case []any:
+		if len(val) == 0 {
+			buf.WriteString(c.Punctuation + "[]" + c.Reset)
+			return
+		}
+		buf.WriteString(c.Punctuation + "[" + c.Reset + "\n")
+		for i, item := range val {
+			buf.WriteString(indentStr + "  ")
+			writeColoredJSON(buf, item, c, indent+1)
+			if i < len(val)-1 {
+				buf.WriteString(c.Punctuation + "," + c.Reset)
+			}
+			buf.WriteString("\n")
+		}
+		buf.WriteString(c.Punctuation + "]" + c.Reset)
+
+	case string:
+		buf.WriteString(c.Green + `"` + val + `"` + c.Reset)
+
+	case float64:
+		buf.WriteString(c.Yellow + fmt.Sprintf("%v", val) + c.Reset)
+
+	case bool:
+		buf.WriteString(c.Magenta + fmt.Sprintf("%v", val) + c.Reset)
+
+	case nil:
+		buf.WriteString(c.Magenta + "null" + c.Reset)
+
+	default:
+		// fallback
+		b, _ := json.Marshal(val)
+		buf.Write(b)
+	}
+}
+
+// YAML writes the value as pretty-printed YAML.
+// When colors are enabled, it applies syntax highlighting by walking the YAML AST.
+// This is consistent with the JSON implementation and much more reliable than regex.
+func YAML(w io.Writer, v any, colors Colors) error {
+	if colors.Reset == "" {
+		// Fast path - no colors
+		enc := yaml.NewEncoder(w)
+		enc.SetIndent(2)
+		return enc.Encode(v)
+	}
+
+	// Marshal to YAML nodes so we can walk the AST semantically
+	node := &yaml.Node{}
+	if err := node.Encode(v); err != nil {
+		return err
+	}
+
+	var buf strings.Builder
+	writeColoredYAML(&buf, node, colors, 0)
+	_, err := io.WriteString(w, buf.String())
+	return err
+}
+
+// writeColoredYAML walks the YAML AST and writes colored output.
+// This is the proper way to do YAML syntax highlighting (much better than regex on text).
+func writeColoredYAML(buf *strings.Builder, node *yaml.Node, c Colors, indent int) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, child := range node.Content {
+			writeColoredYAML(buf, child, c, indent)
+		}
+
+	case yaml.MappingNode:
+		// Mapping nodes come in pairs: key, value, key, value...
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+
+			// Head comment before the key (e.g. above a field)
+			if key.HeadComment != "" {
+				buf.WriteString(strings.Repeat("  ", indent))
+				buf.WriteString(c.Gray + key.HeadComment + c.Reset + "\n")
+			}
+
+			// Write indentation + key (colored as key)
+			buf.WriteString(strings.Repeat("  ", indent))
+			writeScalar(buf, key, c, true)
+
+			// Write ": "
+			buf.WriteString(": ")
+
+			// Write value
+			if value.Kind == yaml.ScalarNode || value.Kind == yaml.AliasNode {
+				writeScalar(buf, value, c, false)
+				buf.WriteString("\n")
+			} else {
+				buf.WriteString("\n")
+				writeColoredYAML(buf, value, c, indent+1)
+			}
+		}
+
+		if node.FootComment != "" {
+			buf.WriteString(strings.Repeat("  ", indent))
+			buf.WriteString(c.Gray + node.FootComment + c.Reset + "\n")
+		}
+
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			buf.WriteString(strings.Repeat("  ", indent) + "- ")
+
+			if item.Kind == yaml.ScalarNode || item.Kind == yaml.AliasNode {
+				writeScalar(buf, item, c, false)
+				buf.WriteString("\n")
+			} else {
+				buf.WriteString("\n")
+				writeColoredYAML(buf, item, c, indent+1)
+			}
+		}
+
+		if node.FootComment != "" {
+			buf.WriteString(strings.Repeat("  ", indent))
+			buf.WriteString(c.Gray + node.FootComment + c.Reset + "\n")
+		}
+
+	case yaml.ScalarNode:
+		writeScalar(buf, node, c, false)
+		buf.WriteString("\n")
+
+	default:
+		// Fallback for aliases etc.
+		buf.WriteString(strings.Repeat("  ", indent))
+		writeScalar(buf, node, c, false)
+		buf.WriteString("\n")
+	}
+}
+
+// writeScalar writes a scalar node with appropriate coloring.
+// For strings, we only add quotes when YAML would require them (to keep output natural).
+func writeScalar(buf *strings.Builder, node *yaml.Node, c Colors, isKey bool) {
+	value := node.Value
+
+	if isKey {
+		buf.WriteString(c.Cyan + value + c.Reset)
+		return
+	}
+
+	switch node.Tag {
+	case "!!str":
+		if yamlNeedsQuoting(value) {
+			// Escape double quotes inside the string
+			escaped := strings.ReplaceAll(value, `"`, `\"`)
+			buf.WriteString(c.Green + `"` + escaped + `"` + c.Reset)
+		} else {
+			buf.WriteString(c.Green + value + c.Reset)
+		}
+
+	case "!!int", "!!float":
+		buf.WriteString(c.Yellow + value + c.Reset)
+
+	case "!!bool":
+		buf.WriteString(c.Magenta + value + c.Reset)
+
+	case "!!null":
+		buf.WriteString(c.Magenta + "null" + c.Reset)
+
+	case "!!timestamp":
+		// Color timestamps like numbers for good UX
+		buf.WriteString(c.Yellow + value + c.Reset)
+
+	default:
+		buf.WriteString(value)
+	}
+
+	// Append inline comment if present
+	if node.LineComment != "" {
+		buf.WriteString(" " + c.Gray + node.LineComment + c.Reset)
+	}
+}
+
+// yamlNeedsQuoting returns whether a string value needs to be quoted in YAML output.
+// This is a lightweight heuristic that covers the most common cases.
+func yamlNeedsQuoting(s string) bool {
+	if s == "" {
+		return true
+	}
+
+	// Must quote if it contains characters that have special meaning or would be ambiguous
+	if strings.ContainsAny(s, ":{}[]&*!|>'\"%@`") ||
+		strings.HasPrefix(s, "- ") ||
+		strings.HasPrefix(s, "? ") ||
+		strings.Contains(s, "\n") ||
+		strings.HasPrefix(s, " ") || strings.HasSuffix(s, " ") {
+		return true
+	}
+
+	// Quote if it would be parsed as a number, boolean, or null
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return true
+	}
+
+	lower := strings.ToLower(s)
+	switch lower {
+	case "true", "false", "null", "~", "yes", "no", "on", "off":
+		return true
+	}
+
+	return false
 }

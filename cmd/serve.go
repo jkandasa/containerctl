@@ -101,6 +101,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		ExecAllowed: execAllowed,
 		EditEnabled: editEnabled,
 		UseEnabled:  useEnabled,
+		NoColor:     flagNoColor,
 	})
 
 	return srv.Start()

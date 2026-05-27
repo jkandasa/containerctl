@@ -30,16 +30,20 @@ type sessionStore struct {
 	ttl      time.Duration
 	mu       sync.RWMutex
 	sessions map[string]*sessionEntry
-	failMu   sync.Mutex
-	failures map[string]*loginAttempt // keyed by client IP
+
+	// Brute force protection
+	failMu         sync.Mutex
+	failures       map[string]*loginAttempt // keyed by client IP
+	globalFailures []time.Time              // recent failed attempts (any IP)
 }
 
 func newSessionStore(token string, ttl time.Duration) *sessionStore {
 	return &sessionStore{
-		token:    token,
-		ttl:      ttl,
-		sessions: make(map[string]*sessionEntry),
-		failures: make(map[string]*loginAttempt),
+		token:          token,
+		ttl:            ttl,
+		sessions:       make(map[string]*sessionEntry),
+		failures:       make(map[string]*loginAttempt),
+		globalFailures: make([]time.Time, 0, 64),
 	}
 }
 
@@ -50,11 +54,34 @@ func (s *sessionStore) validateToken(tok string) bool {
 // validateLogin checks rate-limiting, validates the token, and updates the
 // failure counter for ip. Returns ok=true on success. When blocked=true the
 // caller should show a retry-after message; retryAfter is the remaining block
-// duration. blocked can be true even on first call if the block window just
-// started (5th consecutive failure).
+// duration.
 func (s *sessionStore) validateLogin(ip, token string) (ok, blocked bool, retryAfter time.Duration) {
 	s.failMu.Lock()
 	defer s.failMu.Unlock()
+
+	now := time.Now()
+
+	// Global rate limiting: prune old failures (last 10 minutes)
+	cutoff := now.Add(-10 * time.Minute)
+	filtered := s.globalFailures[:0]
+	for _, t := range s.globalFailures {
+		if t.After(cutoff) {
+			filtered = append(filtered, t)
+		}
+	}
+	s.globalFailures = filtered
+
+	// If we have had many failures globally recently, slow everyone down
+	const globalThreshold = 25
+	const globalMinDelay = 3 * time.Second
+
+	if len(s.globalFailures) >= globalThreshold {
+		// Enforce a minimum delay between any login attempts
+		last := s.globalFailures[len(s.globalFailures)-1]
+		if now.Sub(last) < globalMinDelay {
+			return false, true, globalMinDelay - now.Sub(last)
+		}
+	}
 
 	a := s.failures[ip]
 	if a == nil {
@@ -62,28 +89,30 @@ func (s *sessionStore) validateLogin(ip, token string) (ok, blocked bool, retryA
 		s.failures[ip] = a
 	}
 
-	// Check active block window.
+	// Check active block window for this IP.
 	if !a.blockedAt.IsZero() {
 		elapsed := time.Since(a.blockedAt)
 		if elapsed < loginBlockDur {
 			return false, true, loginBlockDur - elapsed
 		}
-		// Block expired — reset counters and allow a fresh attempt.
 		a.count = 0
 		a.blockedAt = time.Time{}
 	}
 
-	// validateToken is pure CPU; safe to call under failMu.
 	if s.validateToken(token) {
 		delete(s.failures, ip)
 		return true, false, 0
 	}
 
+	// Record this failure globally
+	s.globalFailures = append(s.globalFailures, now)
+
 	a.count++
 	if a.count >= maxLoginFailures {
-		a.blockedAt = time.Now()
+		a.blockedAt = now
 		return false, true, loginBlockDur
 	}
+
 	return false, false, 0
 }
 
@@ -117,6 +146,11 @@ func (s *sessionStore) delete(id string) {
 	s.mu.Lock()
 	delete(s.sessions, id)
 	s.mu.Unlock()
+}
+
+// TTL returns the configured session lifetime.
+func (s *sessionStore) TTL() time.Duration {
+	return s.ttl
 }
 
 func (s *sessionStore) validRequest(r *http.Request) bool {

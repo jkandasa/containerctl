@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +39,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ok, blocked, retryAfter := s.auth.validateLogin(ip, r.FormValue("token"))
 		if ok {
 			id := s.auth.create()
+			ttl := s.auth.TTL()
 			http.SetCookie(w, &http.Cookie{
 				Name:     sessionCookie,
 				Value:    id,
@@ -45,6 +47,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
 				Secure:   s.cfg.TLSMode != "" && s.cfg.TLSMode != "none",
+				MaxAge:   int(ttl.Seconds()),
+				Expires:  time.Now().Add(ttl),
 			})
 			http.Redirect(w, r, "/terminal", http.StatusFound)
 			return
@@ -83,7 +87,7 @@ func (s *Server) handleTerminalPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatusAPI(w http.ResponseWriter, r *http.Request) {
-	statusArgs := []string{"status", "--output", "json"}
+	statusArgs := []string{"status", "--output", "json", "--no-color"}
 	args := append(s.buildGlobalFlags(s.cfg.StackFile, statusArgs), statusArgs...)
 	cmd := exec.CommandContext(r.Context(), s.cfg.Executable, args...)
 	out, err := cmd.Output()

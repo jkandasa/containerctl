@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -10,9 +9,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/jkandasa/containerctl/internal/config"
+	"github.com/jkandasa/containerctl/internal/render"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
@@ -130,14 +129,11 @@ func runVolumes(cmd *cobra.Command, args []string) error {
 			}
 			out = append(out, volumeOut{VolumeInfo: v, Containers: refs})
 		}
+		cols := colors()
 		if flagOutput == "yaml" {
-			enc := yaml.NewEncoder(os.Stdout)
-			enc.SetIndent(2)
-			return enc.Encode(out)
+			return render.YAML(os.Stdout, out, cols)
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return render.JSON(os.Stdout, out, cols)
 	default:
 		if len(vols) == 0 {
 			fmt.Println("No volumes found.")

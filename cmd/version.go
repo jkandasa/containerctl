@@ -2,16 +2,14 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"runtime"
 	"runtime/debug"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/spf13/cobra"
 
+	"github.com/jkandasa/containerctl/internal/render"
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
@@ -82,13 +80,9 @@ func runVersion(cmd *cobra.Command, args []string) error {
 
 	switch flagOutput {
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(info)
+		return render.JSON(os.Stdout, info, colors())
 	case "yaml":
-		enc := yaml.NewEncoder(os.Stdout)
-		enc.SetIndent(2)
-		return enc.Encode(info)
+		return render.YAML(os.Stdout, info, colors())
 	default:
 		fmt.Printf("version:    %s\n", info.Version)
 		fmt.Printf("build date: %s\n", info.BuildDate)

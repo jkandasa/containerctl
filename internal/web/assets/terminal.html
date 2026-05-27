@@ -139,7 +139,7 @@
           yellow:  '#d29922', brightYellow:  '#e3b341',
           blue:    '#79c0ff', brightBlue:    '#a5d6ff',
           magenta: '#bc8cff', brightMagenta: '#d2a8ff',
-          cyan:    '#39d353', brightCyan:    '#56d364',
+          cyan:    '#58d1eb', brightCyan:    '#79d9f0',
           white:   '#e6edf3', brightWhite:   '#ffffff',
         },
       });
@@ -161,20 +161,41 @@
       const ws = new WebSocket(proto + '//' + location.host + '/ws/terminal');
 
       let line    = '';
+      let cursor  = 0;     // cursor position inside `line` (0 = start)
       let running = false;
       const history = [];
       let histIdx = -1;
       let PROMPT         = 'containerctl> ';
       let containerNames = [];
       let activeFilePath = '';
+      let inputLen = 0;    // previous rendered length of input (for clean erase)
 
       function writePrompt() {
         term.write('\r\n' + PROMPT);
+        line = '';
+        cursor = 0;
+        inputLen = 0;
         running = false;
       }
 
       function clearCurrentLine() {
         term.write('\r' + PROMPT + ' '.repeat(line.length) + '\r' + PROMPT);
+      }
+
+      // Redraw the current input line and place the cursor at the correct position.
+      // This is required for proper in-line editing (arrows, backspace in middle, delete, etc.).
+      function refreshLine() {
+        term.write('\r' + PROMPT + line);
+        const extra = Math.max(0, inputLen - line.length);
+        if (extra > 0) {
+          term.write(' '.repeat(extra));
+        }
+        // Move cursor back to the logical position
+        const moveBack = (line.length - cursor) + extra;
+        if (moveBack > 0) {
+          term.write('\x1b[' + moveBack + 'D');
+        }
+        inputLen = line.length;
       }
 
       // ── Tab completion ────────────────────────────────────────────────────────
@@ -204,11 +225,15 @@
         if (matches.length === 0) return;
         if (matches.length === 1) {
           const tail = matches[0].slice(prefix.length);
-          line += tail;
-          term.write(tail);
+          line = line.slice(0, cursor) + tail + line.slice(cursor);
+          cursor += tail.length;
+          refreshLine();
         } else {
           term.write('\r\n' + matches.join('  '));
           term.write('\r\n' + PROMPT + line);
+          // After showing multiple matches, cursor is at the end
+          cursor = line.length;
+          inputLen = line.length;
         }
       }
 
@@ -271,6 +296,10 @@
             term.write('\r\n\x1b[31m' + msg.msg + '\x1b[0m');
             leaveExecMode();
             writePrompt();
+          } else if (msg.type === 'session_invalid') {
+            term.write('\r\n\x1b[31m' + (msg.msg || 'Session expired or invalid') + '\x1b[0m\r\n');
+            leaveExecMode();
+            setTimeout(function () { window.location.href = '/login?error=expired'; }, 700);
           }
         };
 
@@ -331,11 +360,16 @@
 
         fetch('/api/v1/file?path=' + encodeURIComponent(filePath))
           .then(function (r) {
+            if (r.status === 401 || r.status === 403) {
+              window.location.href = '/login?error=expired';
+              return;
+            }
             if (!r.ok) throw new Error('HTTP ' + r.status);
             editorETag = r.headers.get('ETag') || '';
             return r.text();
           })
           .then(function (content) {
+            if (!content) return; // redirected
             setStatus('', false);
             ensureCodeMirror(function () { initEditor(content); });
           })
@@ -422,6 +456,10 @@
           method: 'PUT', headers: headers, body: content,
         })
           .then(function (r) {
+            if (r.status === 401 || r.status === 403) {
+              window.location.href = '/login?error=expired';
+              return;
+            }
             if (r.status === 409) {
               setStatus('⚠ Conflict: file was modified by another client — :q! to discard, or copy edits and reopen', true);
               return;
@@ -429,7 +467,13 @@
             if (!r.ok) throw new Error('HTTP ' + r.status);
             editorDirty = false;
             fetch('/api/v1/file?path=' + encodeURIComponent(editorFilePath))
-              .then(function (r2) { if (r2.ok) editorETag = r2.headers.get('ETag') || ''; });
+              .then(function (r2) {
+                if (r2.status === 401 || r2.status === 403) {
+                  window.location.href = '/login?error=expired';
+                  return;
+                }
+                if (r2.ok) editorETag = r2.headers.get('ETag') || '';
+              });
             setStatus('Written ' + new Blob([content]).size + 'B', false);
             setTimeout(function () { if (!editorDirty) setStatus('', false); }, 2000);
             if (thenClose) closeEditor(true);
@@ -490,6 +534,9 @@
           case 'prompt':
             PROMPT = msg.data;
             term.write('\r\n' + PROMPT);
+            line = '';
+            cursor = 0;
+            inputLen = 0;
             break;
           case 'names':
             containerNames = msg.names || [];
@@ -504,10 +551,23 @@
             break;
           case 'error':
             term.write('\r\n\x1b[31m' + msg.msg + '\x1b[0m');
+            // Reset local input state. We rely on a following 'done' message
+            // (sent by the backend for error cases) to call writePrompt().
+            // This prevents double prompts.
+            line = '';
+            cursor = 0;
+            inputLen = 0;
+            running = false;
+            break;
+          case 'session_invalid':
+            term.write('\r\n\x1b[31m' + (msg.msg || 'Session expired or invalid') + '\x1b[0m\r\n');
+            setTimeout(function () { window.location.href = '/login?error=expired'; }, 700);
             break;
           case 'clear':
             term.clear();
             term.write(PROMPT + line);
+            cursor = line.length;
+            inputLen = line.length;
             break;
         }
       };
@@ -534,6 +594,8 @@
           histIdx = -1;
           term.write('\r\n');
           line = '';
+          cursor = 0;
+          inputLen = 0;
           if (!cmd) { writePrompt(); return; }
           running = true;
           ws.send(JSON.stringify({ cmd: cmd }));
@@ -541,16 +603,61 @@
         }
 
         if (k === 'Backspace') {
-          if (line.length > 0) { line = line.slice(0, -1); term.write('\b \b'); }
+          if (cursor > 0) {
+            line = line.slice(0, cursor - 1) + line.slice(cursor);
+            cursor--;
+            refreshLine();
+          }
+          return;
+        }
+
+        if (k === 'Delete') {
+          if (cursor < line.length) {
+            line = line.slice(0, cursor) + line.slice(cursor + 1);
+            refreshLine();
+          }
+          return;
+        }
+
+        if (k === 'ArrowLeft') {
+          if (cursor > 0) {
+            cursor--;
+            term.write('\x1b[D');
+          }
+          return;
+        }
+
+        if (k === 'ArrowRight') {
+          if (cursor < line.length) {
+            cursor++;
+            term.write('\x1b[C');
+          }
+          return;
+        }
+
+        if (k === 'Home' || (domEvent.ctrlKey && k === 'a')) {
+          if (cursor !== 0) {
+            term.write('\x1b[' + cursor + 'D');
+            cursor = 0;
+          }
+          return;
+        }
+
+        if (k === 'End' || (domEvent.ctrlKey && k === 'e')) {
+          const delta = line.length - cursor;
+          if (delta > 0) {
+            term.write('\x1b[' + delta + 'C');
+            cursor = line.length;
+          }
           return;
         }
 
         if (k === 'ArrowUp') {
           if (histIdx + 1 < history.length) {
             histIdx++;
-            clearCurrentLine();
             line = history[histIdx];
-            term.write(line);
+            cursor = line.length;
+            refreshLine();
           }
           return;
         }
@@ -558,13 +665,14 @@
         if (k === 'ArrowDown') {
           if (histIdx > 0) {
             histIdx--;
-            clearCurrentLine();
             line = history[histIdx];
-            term.write(line);
+            cursor = line.length;
+            refreshLine();
           } else if (histIdx === 0) {
             histIdx = -1;
-            clearCurrentLine();
             line = '';
+            cursor = 0;
+            refreshLine();
           }
           return;
         }
@@ -572,6 +680,7 @@
         if (k === 'Tab') {
           domEvent.preventDefault();
           tabComplete();
+          cursor = line.length;
           return;
         }
 
@@ -581,6 +690,8 @@
           } else {
             term.write('^C');
             line = '';
+            cursor = 0;
+            inputLen = 0;
             writePrompt();
           }
           return;
@@ -589,12 +700,17 @@
         if (domEvent.ctrlKey && k === 'l') {
           term.clear();
           term.write(PROMPT + line);
+          // reposition visual cursor
+          const back = line.length - cursor;
+          if (back > 0) term.write('\x1b[' + back + 'D');
           return;
         }
 
+        // Printable characters - insert at cursor position
         if (!domEvent.ctrlKey && !domEvent.altKey && !domEvent.metaKey && key.length === 1) {
-          line += key;
-          term.write(key);
+          line = line.slice(0, cursor) + key + line.slice(cursor);
+          cursor++;
+          refreshLine();
         }
       });
     }

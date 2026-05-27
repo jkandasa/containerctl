@@ -99,6 +99,12 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Extra safety: re-validate session right after upgrade for long-lived connections
+	if !s.validateSession(r) {
+		_ = conn.WriteJSON(wsMsg{Type: "session_invalid", Msg: "session expired or invalid"})
+		return
+	}
+
 	state := &connState{activeFile: s.cfg.StackFile}
 
 	var (
@@ -129,6 +135,12 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Periodically re-validate the session for long-lived connections
+		if !s.validateSession(r) {
+			send(wsMsg{Type: "session_invalid", Msg: "session expired or invalid, please log in again"})
+			return
+		}
+
 		if m.Cmd == "__interrupt__" {
 			mu.Lock()
 			if cancel != nil {
@@ -142,6 +154,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		if running {
 			mu.Unlock()
 			send(wsMsg{Type: "error", Msg: "command already running"})
+			send(wsMsg{Type: "done"})
 			continue
 		}
 		running = true
@@ -165,6 +178,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 				if !allowedCmds[subcmd] {
 					send(wsMsg{Type: "error", Msg: fmt.Sprintf("unknown command %q; type help for available commands", subcmd)})
 					finishCmd()
+					send(wsMsg{Type: "done"})
 					continue
 				}
 				ctx, cancelFn := context.WithCancel(r.Context())
@@ -239,12 +253,14 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			if len(parts) < 2 {
 				send(wsMsg{Type: "error", Msg: "usage: use <path-to-stack.yaml>"})
 				finishCmd()
+				send(wsMsg{Type: "done"})
 				continue
 			}
 			abs, err := filepath.Abs(parts[1])
 			if err != nil || !fileExists(abs) {
 				send(wsMsg{Type: "error", Msg: fmt.Sprintf("file not found: %s", parts[1])})
 				finishCmd()
+				send(wsMsg{Type: "done"})
 				continue
 			}
 			state.activeFile = abs
@@ -259,6 +275,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 		if !allowedCmds[name] {
 			send(wsMsg{Type: "error", Msg: fmt.Sprintf("unknown command %q; type help for available commands", name)})
 			finishCmd()
+			send(wsMsg{Type: "done"})
 			continue
 		}
 
@@ -319,6 +336,12 @@ func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Extra safety: re-validate session right after upgrade
+	if !s.validateSession(r) {
+		_ = conn.WriteJSON(wsMsg{Type: "session_invalid", Msg: "session expired or invalid"})
+		return
+	}
+
 	name := r.URL.Query().Get("name")
 	if name == "" {
 		_ = conn.WriteJSON(wsMsg{Type: "error", Msg: "name query parameter required"})
@@ -348,6 +371,12 @@ func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
+				cancel()
+				return
+			}
+			// Re-validate session on long-lived log connections
+			if !s.validateSession(r) {
+				_ = conn.WriteJSON(wsMsg{Type: "session_invalid", Msg: "session expired or invalid"})
 				cancel()
 				return
 			}
@@ -431,7 +460,23 @@ func (s *Server) buildGlobalFlags(activeFile string, userArgs []string) []string
 	if s.cfg.Project != "" {
 		flags = append(flags, "--project", s.cfg.Project)
 	}
+
+	// Propagate --no-color from the server startup for consistency,
+	// unless the user explicitly specified a color preference in their command.
+	if s.cfg.NoColor && !hasColorFlag(userArgs) {
+		flags = append(flags, "--no-color")
+	}
+
 	return flags
+}
+
+func hasColorFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--no-color" || a == "--color" {
+			return true
+		}
+	}
+	return false
 }
 
 func hasFileFlag(args []string) bool {
@@ -528,6 +573,12 @@ func (s *Server) handleExecWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Extra safety: re-validate session right after upgrade for long-lived connections
+	if !s.validateSession(r) {
+		_ = conn.WriteJSON(wsMsg{Type: "session_invalid", Msg: "session expired or invalid"})
+		return
+	}
+
 	if !s.cfg.ExecEnabled {
 		_ = conn.WriteJSON(wsMsg{Type: "error", Msg: "exec is disabled; set serve.exec.enabled: true in your stack.yaml and restart"})
 		return
@@ -612,6 +663,13 @@ func (s *Server) handleExecWS(w http.ResponseWriter, r *http.Request) {
 				cancel()
 				return
 			}
+
+			// Re-validate session periodically on long-lived exec connections
+			if !s.validateSession(r) {
+				send(wsMsg{Type: "session_invalid", Msg: "session expired or invalid"})
+				cancel()
+				return
+			}
 			switch m.Type {
 			case "input":
 				_, _ = ptmx.Write([]byte(m.Data))
@@ -637,10 +695,13 @@ func (s *Server) handleExecWS(w http.ResponseWriter, r *http.Request) {
 
 // getContainerNames runs "status --output json" against the given stack file
 // and returns the logical container names. Used to seed client Tab completion.
+//
+// --no-color is always forced because render.JSON applies ANSI coloring when
+// colors are enabled; the raw output must be valid JSON for unmarshaling.
 func (s *Server) getContainerNames(activeFile string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	args := []string{"status", "--output", "json"}
+	args := []string{"status", "--output", "json", "--no-color"}
 	fullArgs := append(s.buildGlobalFlags(activeFile, args), args...)
 	out, err := exec.CommandContext(ctx, s.cfg.Executable, fullArgs...).Output()
 	if err != nil {

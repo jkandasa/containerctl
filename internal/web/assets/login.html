@@ -26,6 +26,9 @@
       if (errType === '1') {
         errDiv.textContent = 'Invalid token. Please try again.';
         errDiv.style.display = 'block';
+      } else if (errType === 'expired') {
+        errDiv.textContent = 'Your session has expired. Please sign in again.';
+        errDiv.style.display = 'block';
       } else if (errType === 'blocked') {
         let sec = Math.max(1, parseInt(params.get('sec') || '30', 10));
         errDiv.style.display = 'block';

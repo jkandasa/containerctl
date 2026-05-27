@@ -42,6 +42,11 @@ type Config struct {
 	EditEnabled bool
 	// UseEnabled must be true for the "use" stack-switch command to work.
 	UseEnabled bool
+
+	// NoColor indicates that the server was started with --no-color.
+	// When true, subcommands executed from the web terminal will also
+	// have --no-color injected (unless the user explicitly overrides it).
+	NoColor bool
 }
 
 // Server is the containerctl web interface.
@@ -88,6 +93,12 @@ func (s *Server) protected(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// validateSession checks whether the session associated with the request is still valid.
+// This is used for periodic re-validation on long-lived WebSocket connections.
+func (s *Server) validateSession(r *http.Request) bool {
+	return s.auth.validRequest(r)
 }
 
 // Start runs the server until interrupted.
