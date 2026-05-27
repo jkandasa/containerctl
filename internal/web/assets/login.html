@@ -4,7 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>containerctl · login</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2379c0ff'%3E%3Cpath d='M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function() {
+      // Minimal theme support on login (respects localStorage + system)
+      const saved = localStorage.getItem('containerctl-theme') || 'auto';
+      let theme = saved;
+      if (saved === 'auto') {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
 </head>
 <body class="login-body">
   <div class="login-card">
@@ -14,6 +26,9 @@
       <input type="password" name="token" id="token-input" placeholder="Access token" autofocus autocomplete="current-password">
       <button type="submit" id="submit-btn">Sign in</button>
     </form>
+    <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);text-align:center;opacity:0.7">
+      containerctl web terminal
+    </div>
   </div>
   <script>
     (function () {
@@ -22,6 +37,7 @@
       const errDiv  = document.getElementById('err');
       const btn     = document.getElementById('submit-btn');
       const input   = document.getElementById('token-input');
+      const form    = document.getElementById('login-form');
 
       if (errType === '1') {
         errDiv.textContent = 'Invalid token. Please try again.';
@@ -51,6 +67,14 @@
           setTimeout(tick, 1000);
         }
         tick();
+      }
+
+      // Simple loading state on submit (no page flash)
+      if (form && btn) {
+        form.addEventListener('submit', function () {
+          btn.disabled = true;
+          btn.textContent = 'Signing in…';
+        });
       }
     })();
   </script>

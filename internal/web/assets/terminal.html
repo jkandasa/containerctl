@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>containerctl · terminal</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2379c0ff'%3E%3Cpath d='M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/xterm.css" onerror="this.remove()">
 
@@ -67,6 +68,84 @@
       '--file', '--no-color', '--output', '--project', '--runtime', '--socket',
     ];
 
+    // ── Theme system (dark / light / auto) ─────────────────────────────────────
+    const THEME_PALETTES = {
+      dark: {
+        background:          '#0d1117',
+        foreground:          '#e6edf3',
+        cursor:              '#79c0ff',
+        cursorAccent:        '#0d1117',
+        selectionBackground: '#264f78',
+        black: '#0d1117', brightBlack: '#6e7681',
+        red: '#ff7b72',   brightRed:   '#ffa198',
+        green: '#3fb950', brightGreen: '#56d364',
+        yellow: '#d29922',brightYellow:'#e3b341',
+        blue: '#79c0ff',  brightBlue:  '#a5d6ff',
+        magenta:'#bc8cff',brightMagenta:'#d2a8ff',
+        cyan: '#58d1eb',  brightCyan:  '#79d9f0',
+        white: '#e6edf3', brightWhite: '#ffffff',
+      },
+      light: {
+        background:          '#f6f8fa',
+        foreground:          '#1f2328',
+        cursor:              '#0969da',
+        cursorAccent:        '#ffffff',
+        selectionBackground: '#b6e3ff',
+        black: '#24292f', brightBlack: '#57606a',
+        red: '#cf222e',   brightRed:   '#a40e26',
+        green: '#1a7f37', brightGreen: '#2da44e',
+        yellow: '#9a6700',brightYellow:'#9a6700',
+        blue: '#0969da',  brightBlue:  '#218bff',
+        magenta:'#8250df',brightMagenta:'#a371f7',
+        cyan: '#1b7c83',  brightCyan:  '#3192aa',
+        white: '#6e7781', brightWhite: '#8c959f',
+      }
+    };
+
+    function getEffectiveTheme() {
+      const saved = localStorage.getItem('containerctl-theme') || 'auto';
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme /* 'dark' | 'light' */) {
+      document.documentElement.setAttribute('data-theme', theme);
+
+      // Update xterm if it exists
+      if (window.currentTerminal && window.currentTerminal.options) {
+        try {
+          window.currentTerminal.options.theme = THEME_PALETTES[theme];
+        } catch (e) {}
+      }
+
+      // Update toggle button label
+      const btn = document.getElementById('theme-toggle');
+      if (btn) {
+        const saved = localStorage.getItem('containerctl-theme') || 'auto';
+        btn.textContent = saved === 'auto' ? '◐' : (theme === 'dark' ? '☾' : '☼');
+        btn.title = `Theme: ${saved} (click to cycle)`;
+      }
+    }
+
+    function setTheme(mode /* 'dark' | 'light' | 'auto' */) {
+      localStorage.setItem('containerctl-theme', mode);
+      const effective = getEffectiveTheme();
+      applyTheme(effective);
+    }
+
+    function cycleTheme() {
+      const current = localStorage.getItem('containerctl-theme') || 'auto';
+      const next = current === 'auto' ? 'dark' : (current === 'dark' ? 'light' : 'auto');
+      setTheme(next);
+    }
+
+    // Listen for system changes when in auto mode
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem('containerctl-theme') || 'auto') === 'auto') {
+        applyTheme(getEffectiveTheme());
+      }
+    });
+
     // ── CodeMirror lazy loader ──────────────────────────────────────────────────
     const CM_VER  = '5.65.17';
     const CM_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/' + CM_VER;
@@ -121,34 +200,35 @@
     // ── xterm init ─────────────────────────────────────────────────────────────
     function init() {
       const fitAddon = new FitAddon.FitAddon();
+      const effectiveTheme = getEffectiveTheme();
       const term = new Terminal({
         cursorBlink: true,
         convertEol:  true,
         scrollback:  5000,
         fontFamily:  'Menlo, Monaco, "Courier New", monospace',
         fontSize:    14,
-        theme: {
-          background:          '#0d1117',
-          foreground:          '#e6edf3',
-          cursor:              '#79c0ff',
-          cursorAccent:        '#0d1117',
-          selectionBackground: '#264f78',
-          black:   '#0d1117', brightBlack:   '#6e7681',
-          red:     '#ff7b72', brightRed:     '#ffa198',
-          green:   '#3fb950', brightGreen:   '#56d364',
-          yellow:  '#d29922', brightYellow:  '#e3b341',
-          blue:    '#79c0ff', brightBlue:    '#a5d6ff',
-          magenta: '#bc8cff', brightMagenta: '#d2a8ff',
-          cyan:    '#58d1eb', brightCyan:    '#79d9f0',
-          white:   '#e6edf3', brightWhite:   '#ffffff',
-        },
+        padding:     4,   // small internal padding so first line doesn't feel glued to the edge
+        theme: THEME_PALETTES[effectiveTheme],
       });
+      window.currentTerminal = term; // exposed for theme switching
 
       term.loadAddon(fitAddon);
       const container = document.getElementById('terminal-container');
       term.open(container);
       fitAddon.fit();
       term.focus();
+
+      // Apply initial theme (after terminal exists)
+      applyTheme(effectiveTheme);
+
+      // Theme toggle button
+      const themeBtn = document.getElementById('theme-toggle');
+      if (themeBtn) {
+        themeBtn.addEventListener('click', cycleTheme);
+        // Set initial label
+        const saved = localStorage.getItem('containerctl-theme') || 'auto';
+        themeBtn.textContent = saved === 'auto' ? '◐' : (effectiveTheme === 'dark' ? '☾' : '☼');
+      }
 
       window.addEventListener('resize', function () {
         fitAddon.fit();
@@ -169,6 +249,20 @@
       let containerNames = [];
       let activeFilePath = '';
       let inputLen = 0;    // previous rendered length of input (for clean erase)
+
+      function updateTopbarStack(filePath) {
+        const el = document.getElementById('topbar-stack');
+        if (!el) return;
+        if (filePath) {
+          const base = filePath.split(/[\\/]/).pop() || filePath;
+          el.textContent = base;
+          el.title = 'Active stack: ' + filePath + '  (use <path> to change)';
+          el.style.display = '';
+        } else {
+          el.textContent = '';
+          el.style.display = 'none';
+        }
+      }
 
       function writePrompt() {
         term.write('\r\n' + PROMPT);
@@ -537,6 +631,8 @@
             line = '';
             cursor = 0;
             inputLen = 0;
+            // activeFilePath may have been set by a previous 'use' or initial load
+            updateTopbarStack(activeFilePath);
             break;
           case 'names':
             containerNames = msg.names || [];
@@ -573,7 +669,11 @@
       };
 
       ws.onclose = function () {
-        term.writeln('\r\n\x1b[33mDisconnected. Reload to reconnect.\x1b[0m');
+        term.writeln('\r\n\x1b[33mDisconnected from server.\x1b[0m');
+        const reconnect = document.createElement('span');
+        reconnect.innerHTML = ' <a href="#" style="color:#79c0ff;text-decoration:underline">Reconnect</a>';
+        reconnect.querySelector('a').onclick = function (e) { e.preventDefault(); location.reload(); };
+        term.write(reconnect.innerHTML);
       };
       ws.onerror = function () {
         term.writeln('\r\n\x1b[31mWebSocket error.\x1b[0m');
@@ -598,6 +698,14 @@
           inputLen = 0;
           if (!cmd) { writePrompt(); return; }
           running = true;
+          // Optimistic stack update for "use" command
+          if (cmd.toLowerCase().startsWith('use ')) {
+            const p = cmd.slice(4).trim();
+            if (p) {
+              activeFilePath = p;
+              updateTopbarStack(activeFilePath);
+            }
+          }
           ws.send(JSON.stringify({ cmd: cmd }));
           return;
         }
@@ -719,6 +827,7 @@
 <body class="terminal-body">
   <div class="topbar" id="topbar">
     <span class="topbar-title">containerctl</span>
+    <span id="topbar-stack" class="topbar-stack" title="Active stack file (change with 'use')"></span>
 
     <!-- Exec session badge: visible only during an active exec session -->
     <div class="exec-badge hidden" id="exec-badge">
@@ -729,6 +838,8 @@
       <button type="button" class="exec-exit-btn" id="exec-exit-btn"
               title="Send Ctrl+D to end the exec session">Exit</button>
     </div>
+
+    <button type="button" id="theme-toggle" class="logout-btn" title="Toggle theme (dark/light/auto)" aria-label="Toggle color theme">◐</button>
 
     <form method="POST" action="/logout">
       <button type="submit" class="logout-btn">Logout</button>
