@@ -172,8 +172,27 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 		}
 
 		if c.Disabled {
-			entry.State = "declared-off"
-			entry.Note = "disabled: true in YAML"
+			lc, exists := liveByName[c.Name]
+			if exists {
+				entry.State = "declared-off"
+				entry.Image = lc.Image
+				entry.ContainerName = lc.Name
+				entry.ContainerID = shortID(lc.ID)
+				entry.Ports = portBindingsToEntries(lc.Ports)
+				entry.Networks = networkEntries(lc.NetworkInfos)
+				entry.Mounts = mountEntries(lc.Mounts)
+				entry.CreatedAt = timePtr(lc.CreatedAt)
+				entry.StartedAt = timePtr(lc.StartedAt)
+				if d := dataByID[lc.ID]; d != nil {
+					if detail := d.detail; detail != nil {
+						applyDetailToEntry(&entry, detail, lc.State)
+					}
+				}
+				entry.Note = "disabled: true in YAML (apply will remove)"
+			} else {
+				entry.State = "declared-off"
+				entry.Note = "disabled: true in YAML"
+			}
 			entries = append(entries, entry)
 			continue
 		}

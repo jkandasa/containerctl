@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `status`: containers in the `disabled` state (disabled via state file, container still present on host) now correctly show CREATED and UPTIME. Previously both were always `-` because the `InspectContainer` detail was not consulted for that code path.
+- `status`: containers with `disabled: true` in YAML that are still running on the host now show full runtime data (CREATED, UPTIME, ports, networks, mounts) with a note "disabled: true in YAML (apply will remove)". Previously all runtime fields showed `-`, giving no visibility into what was still running.
 - `status -o json|yaml`: `created_at`, `started_at`, and `last_restart` are now always emitted in the host's local timezone (e.g. `2026-05-31T06:51:27+05:30`) for consistent, human-readable output.
 
 ---

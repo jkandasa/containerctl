@@ -339,10 +339,11 @@ postgres   running       postgres:16      30d 2h    4d 2h     ok
 nginx      running       nginx:1.27       30d 2h    4d 2h     drift
 redis      stopped       redis:7.2        10d 5h    -         ok
 backups    disabled      restic:0.16      10d 5h    -         -
-old-app    declared-off  -                -         -         -
+old-app    declared-off  app:v1.2.0       5d 1h     2h 10m    -
+orphan     declared-off  -                -         -         -
 ```
 
-State values: `running`, `stopped` (exited — apply will restart), `disabled` (in state file — apply skips), `declared-off` (YAML `disabled: true`, no container present), `missing` (in YAML, not on host — apply will create).
+State values: `running`, `stopped` (exited — apply will restart), `disabled` (in state file — apply skips), `declared-off` (YAML `disabled: true` — if the container is still on the host, runtime data is shown and NOTE says "apply will remove"; if not on host, all fields are `-`), `missing` (in YAML, not on host — apply will create).
 
 ---
 
@@ -389,8 +390,8 @@ For each container `c` in YAML:
 
 1. Look up the container by full name `<project>_<c.name>` AND label `containerctl.managed=true`.
 2. **If YAML has `disabled: true`:**
-   - Container found → `Remove`.
-   - Container not found → `Skip` (state: `declared-off`).
+   - Container found → `Remove` (plan action). Status shows `declared-off` with live runtime data and note "apply will remove".
+   - Container not found → `Skip` (state: `declared-off`, all runtime fields blank).
 3. **Else if container name is in the project state file (persistently disabled):** → `Skip` (state: `disabled`). The hash is not consulted. The container is left stopped on disk.
 4. **Else if container is not found:** → `Create`.
 5. **Else if `containerctl.config-hash` label equals computed hash:** → `Skip`.
