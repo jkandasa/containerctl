@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `status` now shows a **CREATED** column (between PORTS and UPTIME) displaying how long ago the container was created (e.g. `16d 4h`). Previously only uptime (time since last start) was shown, and it was incorrectly derived from the container creation timestamp. UPTIME now correctly reflects the time since the container last started. Both `created_at` and `started_at` are included in `-o json|yaml` output.
+- `status --stats` now includes CPU and memory **throttling** data. A **THROTTLE** column appears in the console table when any container has been throttled (e.g. `cpu:42 mem:0`). `-o json|yaml` groups all live-usage fields under a `stats` object: `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count` (last three omitted when zero/absent).
 
 ### Fixed
 - `status`: containers in the `disabled` state (disabled via state file, container still present on host) now correctly show CREATED and UPTIME. Previously both were always `-` because the `InspectContainer` detail was not consulted for that code path.

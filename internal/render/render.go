@@ -141,31 +141,41 @@ type ResourceLimits struct {
 	Pids   int64  `json:"pids,omitempty"   yaml:"pids,omitempty"`
 }
 
+// StatsEntry holds live resource-usage data collected via --stats.
+// All fields are omitted when --stats is not passed.
+type StatsEntry struct {
+	CPUPercent          *float64 `json:"cpu_percent,omitempty"           yaml:"cpu_percent,omitempty"`
+	CPUThrottledPeriods *uint64  `json:"cpu_throttled_periods,omitempty" yaml:"cpu_throttled_periods,omitempty"`
+	CPUThrottledTime    string   `json:"cpu_throttled_time,omitempty"    yaml:"cpu_throttled_time,omitempty"`
+	CPUThrottledTimeNs  *uint64  `json:"cpu_throttled_time_ns,omitempty" yaml:"cpu_throttled_time_ns,omitempty"`
+	MemoryUsed          string   `json:"memory_used,omitempty"           yaml:"memory_used,omitempty"`
+	MemoryUsedBytes     int64    `json:"memory_used_bytes,omitempty"     yaml:"memory_used_bytes,omitempty"`
+	MemoryFailCount     *uint64  `json:"memory_fail_count,omitempty"     yaml:"memory_fail_count,omitempty"`
+}
+
 // StatusEntry is the unified data model for the status command.
 // JSON and YAML output marshal this directly; text output derives display
 // strings from the typed fields.
 type StatusEntry struct {
-	Name            string          `json:"name"                       yaml:"name"`
-	ContainerName   string          `json:"container_name,omitempty"   yaml:"container_name,omitempty"`
-	Image           string          `json:"image"                      yaml:"image"`
-	ImageDigest     string          `json:"image_digest,omitempty"     yaml:"image_digest,omitempty"`
-	ImageSize       string          `json:"image_size,omitempty"       yaml:"image_size,omitempty"`
-	State           string          `json:"state"                      yaml:"state"`
-	ContainerID     string          `json:"container_id,omitempty"     yaml:"container_id,omitempty"`
-	Ports           []PortEntry     `json:"ports"                      yaml:"ports"`
-	Networks        []NetworkEntry  `json:"networks,omitempty"         yaml:"networks,omitempty"`
-	Mounts          []MountEntry    `json:"mounts,omitempty"           yaml:"mounts,omitempty"`
-	CreatedAt       *time.Time      `json:"created_at,omitempty"       yaml:"created_at,omitempty"`
-	StartedAt       *time.Time      `json:"started_at,omitempty"       yaml:"started_at,omitempty"`
-	RestartCount    int             `json:"restart_count"              yaml:"restart_count"`
-	LastRestart     *time.Time      `json:"last_restart,omitempty"     yaml:"last_restart,omitempty"`
-	Sync            string          `json:"sync"                       yaml:"sync"`
-	ExitCode        *int            `json:"exit_code,omitempty"        yaml:"exit_code,omitempty"`
-	Resources       *ResourceLimits `json:"resources,omitempty"        yaml:"resources,omitempty"`
-	CPUPercent      *float64        `json:"cpu_percent,omitempty"      yaml:"cpu_percent,omitempty"`
-	MemoryUsedBytes int64           `json:"memory_used_bytes,omitempty" yaml:"memory_used_bytes,omitempty"`
-	MemoryUsed      string          `json:"memory_used,omitempty"      yaml:"memory_used,omitempty"`
-	Note            string          `json:"note,omitempty"             yaml:"note,omitempty"`
+	Name          string          `json:"name"                     yaml:"name"`
+	ContainerName string          `json:"container_name,omitempty" yaml:"container_name,omitempty"`
+	Image         string          `json:"image"                    yaml:"image"`
+	ImageDigest   string          `json:"image_digest,omitempty"   yaml:"image_digest,omitempty"`
+	ImageSize     string          `json:"image_size,omitempty"     yaml:"image_size,omitempty"`
+	State         string          `json:"state"                    yaml:"state"`
+	ContainerID   string          `json:"container_id,omitempty"   yaml:"container_id,omitempty"`
+	Ports         []PortEntry     `json:"ports"                    yaml:"ports"`
+	Networks      []NetworkEntry  `json:"networks,omitempty"       yaml:"networks,omitempty"`
+	Mounts        []MountEntry    `json:"mounts,omitempty"         yaml:"mounts,omitempty"`
+	CreatedAt     *time.Time      `json:"created_at,omitempty"     yaml:"created_at,omitempty"`
+	StartedAt     *time.Time      `json:"started_at,omitempty"     yaml:"started_at,omitempty"`
+	RestartCount  int             `json:"restart_count"            yaml:"restart_count"`
+	LastRestart   *time.Time      `json:"last_restart,omitempty"   yaml:"last_restart,omitempty"`
+	Sync          string          `json:"sync"                     yaml:"sync"`
+	ExitCode      *int            `json:"exit_code,omitempty"      yaml:"exit_code,omitempty"`
+	Resources     *ResourceLimits `json:"resources,omitempty"      yaml:"resources,omitempty"`
+	Stats         *StatsEntry     `json:"stats,omitempty"          yaml:"stats,omitempty"`
+	Note          string          `json:"note,omitempty"           yaml:"note,omitempty"`
 }
 
 func Status(w io.Writer, entries []StatusEntry, format Format, colors Colors) {
@@ -200,21 +210,53 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 	// only show CPU/MEM columns when at least one entry has stats data
 	hasStats := false
 	for _, e := range entries {
-		if e.CPUPercent != nil {
+		if e.Stats != nil {
 			hasStats = true
 			break
+		}
+	}
+
+	// only show THROTTLE column when at least one entry has throttle data
+	hasThrottle := false
+	if hasStats {
+		for _, e := range entries {
+			if e.Stats != nil &&
+				((e.Stats.CPUThrottledPeriods != nil && *e.Stats.CPUThrottledPeriods > 0) ||
+					e.Stats.MemoryFailCount != nil) {
+				hasThrottle = true
+				break
+			}
 		}
 	}
 
 	const stateW, createdW, uptimeW, syncW, cpuW, memW = 14, 10, 10, 5, 7, 10
 	c := colors
 
+	// pre-compute throttle strings once for column-width pass and render pass
+	throttleTexts := make([]string, len(entries))
+	throttleW := len("THROTTLE")
+	if hasThrottle {
+		for i, e := range entries {
+			t := textThrottle(e.Stats)
+			throttleTexts[i] = t
+			if n := len(t); n > throttleW {
+				throttleW = n
+			}
+		}
+	}
+
 	var headerLine string
-	if hasStats {
+	switch {
+	case hasStats && hasThrottle:
+		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
+			createdW, "CREATED", uptimeW, "UPTIME", restartsW, "RESTARTS", cpuW, "CPU", memW, "MEM",
+			throttleW, "THROTTLE", syncW, "SYNC", "NOTE")
+	case hasStats:
 		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
 			createdW, "CREATED", uptimeW, "UPTIME", restartsW, "RESTARTS", cpuW, "CPU", memW, "MEM", syncW, "SYNC", "NOTE")
-	} else {
+	default:
 		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
 			createdW, "CREATED", uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
@@ -222,7 +264,7 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 	fmt.Fprintln(w, headerLine)
 	fmt.Fprintln(w, strings.Repeat("-", len(headerLine)))
 
-	for _, e := range entries {
+	for i, e := range entries {
 		stateColor := ""
 		switch e.State {
 		case "running":
@@ -248,15 +290,37 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 			uptime = FormatUptime(*e.StartedAt)
 		}
 
-		if hasStats {
-			cpu := "-"
-			if e.CPUPercent != nil {
-				cpu = fmt.Sprintf("%.2f%%", *e.CPUPercent)
+		cpu, mem := "-", "-"
+		if hasStats && e.Stats != nil {
+			if e.Stats.CPUPercent != nil {
+				cpu = fmt.Sprintf("%.2f%%", *e.Stats.CPUPercent)
 			}
-			mem := "-"
-			if e.MemoryUsed != "" {
-				mem = e.MemoryUsed
+			if e.Stats.MemoryUsed != "" {
+				mem = e.Stats.MemoryUsed
 			}
+		}
+
+		switch {
+		case hasStats && hasThrottle:
+			throttle := throttleTexts[i]
+			throttleColor := ""
+			if throttle != "-" {
+				throttleColor = c.Yellow
+			}
+			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s%-*s%s  %s\n",
+				nameW, e.Name,
+				imageW, e.Image,
+				stateColor, stateW, e.State, c.Reset,
+				portsW, textPorts(e.Ports),
+				createdW, created,
+				uptimeW, uptime,
+				restartsW, textRestarts(e.RestartCount, e.LastRestart),
+				cpuW, cpu,
+				memW, mem,
+				throttleColor, throttleW, throttle, c.Reset,
+				syncColor, syncW, e.Sync, c.Reset,
+				e.Note)
+		case hasStats:
 			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
 				nameW, e.Name,
 				imageW, e.Image,
@@ -269,7 +333,7 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 				memW, mem,
 				syncColor, syncW, e.Sync, c.Reset,
 				e.Note)
-		} else {
+		default:
 			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
 				nameW, e.Name,
 				imageW, e.Image,
@@ -305,6 +369,25 @@ func textPorts(ports []PortEntry) string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, " ")
+}
+
+// textThrottle formats CPU and memory throttle counts for the text table.
+// Returns "-" when there is no throttle data or no throttling occurred.
+func textThrottle(s *StatsEntry) string {
+	if s == nil {
+		return "-"
+	}
+	var cp, mf uint64
+	if s.CPUThrottledPeriods != nil {
+		cp = *s.CPUThrottledPeriods
+	}
+	if s.MemoryFailCount != nil {
+		mf = *s.MemoryFailCount
+	}
+	if cp == 0 && mf == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("cpu:%d mem:%d", cp, mf)
 }
 
 // textRestarts formats restart count + last restart time for the text table.

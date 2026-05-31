@@ -184,9 +184,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 				entry.CreatedAt = timePtr(lc.CreatedAt)
 				entry.StartedAt = timePtr(lc.StartedAt)
 				if d := dataByID[lc.ID]; d != nil {
-					if detail := d.detail; detail != nil {
-						applyDetailToEntry(&entry, detail, lc.State)
-					}
+					applyLiveDataToEntry(&entry, d, lc.State)
 				}
 				entry.Note = "disabled: true in YAML (apply will remove)"
 			} else {
@@ -220,9 +218,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			entry.CreatedAt = timePtr(lc.CreatedAt)
 			entry.StartedAt = timePtr(lc.StartedAt)
 			if d := dataByID[lc.ID]; d != nil {
-				if detail := d.detail; detail != nil {
-					applyDetailToEntry(&entry, detail, lc.State)
-				}
+				applyLiveDataToEntry(&entry, d, lc.State)
 			}
 			entry.Note = "disabled via state file"
 			entries = append(entries, entry)
@@ -240,23 +236,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 		entry.StartedAt = timePtr(lc.StartedAt)
 
 		if d := dataByID[lc.ID]; d != nil {
-			if d.meta.Digest != "" {
-				entry.ImageDigest = d.meta.Digest
-				if d.meta.Size > 0 {
-					entry.ImageSize = formatImageSize(d.meta.Size)
-				}
-			}
-			if d.hasUsage {
-				pct := d.usage.CPUPercent
-				entry.CPUPercent = &pct
-				if d.usage.MemoryUsed > 0 {
-					entry.MemoryUsedBytes = d.usage.MemoryUsed
-					entry.MemoryUsed = formatImageSize(d.usage.MemoryUsed)
-				}
-			}
-			if detail := d.detail; detail != nil {
-				applyDetailToEntry(&entry, detail, lc.State)
-			}
+			applyLiveDataToEntry(&entry, d, lc.State)
 		}
 
 		expectedHash := config.Hash(&c)
@@ -295,23 +275,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			Note:          "not in stack.yaml (orphan)",
 		}
 		if d := dataByID[lc.ID]; d != nil {
-			if d.meta.Digest != "" {
-				entry.ImageDigest = d.meta.Digest
-				if d.meta.Size > 0 {
-					entry.ImageSize = formatImageSize(d.meta.Size)
-				}
-			}
-			if d.hasUsage {
-				pct := d.usage.CPUPercent
-				entry.CPUPercent = &pct
-				if d.usage.MemoryUsed > 0 {
-					entry.MemoryUsedBytes = d.usage.MemoryUsed
-					entry.MemoryUsed = formatImageSize(d.usage.MemoryUsed)
-				}
-			}
-			if detail := d.detail; detail != nil {
-				applyDetailToEntry(&entry, detail, lc.State)
-			}
+			applyLiveDataToEntry(&entry, d, lc.State)
 		}
 		entries = append(entries, entry)
 	}
@@ -442,12 +406,64 @@ func formatCPUs(nanoCPUs int64) string {
 	return fmt.Sprintf("%.2g", float64(nanoCPUs)/1e9)
 }
 
+// formatThrottledTime converts nanoseconds to a human-readable duration string.
+func formatThrottledTime(ns uint64) string {
+	d := time.Duration(ns) * time.Nanosecond
+	if d < time.Millisecond {
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	mins := int(d.Minutes())
+	secs := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm %ds", mins, secs)
+}
+
 // timePtr returns a pointer to a copy of t, or nil if t is the zero time.
 func timePtr(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil
 	}
 	return &t
+}
+
+// applyLiveDataToEntry merges all pre-fetched live data (image meta, stats,
+// inspect detail) into entry.
+func applyLiveDataToEntry(entry *render.StatusEntry, d *liveData, containerState string) {
+	if d.meta.Digest != "" {
+		entry.ImageDigest = d.meta.Digest
+		if d.meta.Size > 0 {
+			entry.ImageSize = formatImageSize(d.meta.Size)
+		}
+	}
+	if d.hasUsage {
+		s := &render.StatsEntry{}
+		pct := d.usage.CPUPercent
+		s.CPUPercent = &pct
+		if d.usage.MemoryUsed > 0 {
+			s.MemoryUsed = formatImageSize(d.usage.MemoryUsed)
+			s.MemoryUsedBytes = d.usage.MemoryUsed
+		}
+		tp := d.usage.CPUThrottledPeriods
+		s.CPUThrottledPeriods = &tp
+		if d.usage.CPUThrottledTimeNs > 0 {
+			ns := d.usage.CPUThrottledTimeNs
+			s.CPUThrottledTime = formatThrottledTime(ns)
+			s.CPUThrottledTimeNs = &ns
+		}
+		if d.usage.MemoryFailCount > 0 {
+			mf := d.usage.MemoryFailCount
+			s.MemoryFailCount = &mf
+		}
+		entry.Stats = s
+	}
+	if detail := d.detail; detail != nil {
+		applyDetailToEntry(entry, detail, containerState)
+	}
 }
 
 // applyDetailToEntry merges InspectContainer fields into entry, overriding

@@ -75,7 +75,7 @@ containerctl status    # see running state and sync status
 |---|---|
 | `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
 | `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
-| `status [name...] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
+| `status [name...] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
 | `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
 | `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |
 | `restart <name...> \| --all [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
@@ -200,12 +200,16 @@ When stdin is a terminal, a PTY is allocated and the terminal is put into raw mo
 # containerctl status --stats -o yaml
 - name: postgres
   ...
-  cpu_percent: 0.42
-  memory_used: 38.2 MiB
-  memory_used_bytes: 40042496
+  stats:
+    cpu_percent: 0.42
+    cpu_throttled_periods: 42
+    cpu_throttled_time: 1.3s
+    cpu_throttled_time_ns: 1300000000
+    memory_used: 38.2 MiB
+    memory_used_bytes: 40042496
 ```
 
-Fields that are not applicable are omitted (`resources` when no limits are set, `exit_code` when running, `last_restart` when `restart_count` is 0, `networks`/`mounts` when empty, etc.). `cpu_percent`, `memory_used`, and `memory_used_bytes` only appear when `--stats` is passed. Timestamps (`created_at`, `started_at`, `last_restart`) are emitted in the host's local timezone (e.g. `"2026-05-31T06:51:27.580976787+05:30"`).
+Fields that are not applicable are omitted. The `stats` object is present only when `--stats` is passed. Within it, `cpu_throttled_time` and `cpu_throttled_time_ns` are omitted when zero; `memory_fail_count` is omitted when zero (cgroups v1 only; always absent on cgroups v2 systems). Timestamps (`created_at`, `started_at`, `last_restart`) are emitted in the host's local timezone (e.g. `"2026-05-31T06:51:27.580976787+05:30"`).
 
 **Resource listing commands** also produce enriched structured output:
 

@@ -172,8 +172,11 @@ type ImageMeta struct {
 }
 
 type ContainerUsage struct {
-	CPUPercent  float64
-	MemoryUsed  int64 // bytes; working-set (cache excluded)
+	CPUPercent          float64
+	CPUThrottledPeriods uint64 // number of periods when CPU was throttled
+	CPUThrottledTimeNs  uint64 // total nanoseconds spent throttled
+	MemoryUsed          int64  // bytes; working-set (cache excluded)
+	MemoryFailCount     uint64 // times memory usage hit the limit (cgroups v1 failcnt)
 }
 
 type NetworkSpec struct {

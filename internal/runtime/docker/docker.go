@@ -111,6 +111,10 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsa
 				TotalUsage  uint64   `json:"total_usage"`
 				PercpuUsage []uint64 `json:"percpu_usage"`
 			} `json:"cpu_usage"`
+			ThrottlingData struct {
+				ThrottledPeriods uint64 `json:"throttled_periods"`
+				ThrottledTime    uint64 `json:"throttled_time"`
+			} `json:"throttling_data"`
 			SystemUsage uint64 `json:"system_cpu_usage"`
 			OnlineCPUs  uint32 `json:"online_cpus"`
 		} `json:"cpu_stats"`
@@ -119,8 +123,9 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsa
 			SystemUsage uint64 `json:"system_cpu_usage"`
 		} `json:"precpu_stats"`
 		MemoryStats struct {
-			Usage uint64            `json:"usage"`
-			Stats map[string]uint64 `json:"stats"`
+			Usage    uint64            `json:"usage"`
+			Failcnt  uint64            `json:"failcnt"`
+			Stats    map[string]uint64 `json:"stats"`
 		} `json:"memory_stats"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
@@ -153,7 +158,13 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsa
 		memUsed = 0
 	}
 
-	return rt.ContainerUsage{CPUPercent: cpuPct, MemoryUsed: memUsed}, nil
+	return rt.ContainerUsage{
+		CPUPercent:          cpuPct,
+		CPUThrottledPeriods: s.CPUStats.ThrottlingData.ThrottledPeriods,
+		CPUThrottledTimeNs:  s.CPUStats.ThrottlingData.ThrottledTime,
+		MemoryUsed:          memUsed,
+		MemoryFailCount:     s.MemoryStats.Failcnt,
+	}, nil
 }
 
 func (c *Client) CheckTagUpdates(ctx context.Context, img string, max int) (*registry.TagUpdates, error) {
