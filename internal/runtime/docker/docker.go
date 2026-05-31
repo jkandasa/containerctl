@@ -293,7 +293,9 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 	}
 	var startedAt time.Time
 	if info.State != nil && info.State.StartedAt != "" {
-		startedAt, _ = time.Parse(time.RFC3339Nano, info.State.StartedAt)
+		if t, err := time.Parse(time.RFC3339Nano, info.State.StartedAt); err == nil {
+			startedAt = t.Local()
+		}
 	}
 	exitCode := 0
 	if info.State != nil {
@@ -301,9 +303,8 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 	}
 	var lastRestart time.Time
 	if info.RestartCount > 0 && info.State != nil && info.State.FinishedAt != "" {
-		t, err := time.Parse(time.RFC3339Nano, info.State.FinishedAt)
-		if err == nil && t.Year() > 1 {
-			lastRestart = t
+		if t, err := time.Parse(time.RFC3339Nano, info.State.FinishedAt); err == nil && t.Year() > 1 {
+			lastRestart = t.Local()
 		}
 	}
 	var resources rt.ContainerResources
@@ -314,6 +315,12 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 			PidsLimit:   pidsLimitVal(info.HostConfig.PidsLimit),
 		}
 	}
+	var createdAt time.Time
+	if info.Created != "" {
+		if t, err := time.Parse(time.RFC3339Nano, info.Created); err == nil {
+			createdAt = t.Local()
+		}
+	}
 	name := strings.TrimPrefix(info.Name, "/")
 	return &rt.ContainerInfo{
 		ID:           info.ID,
@@ -321,6 +328,7 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 		Image:        info.Config.Image,
 		State:        state,
 		Labels:       info.Config.Labels,
+		CreatedAt:    createdAt,
 		StartedAt:    startedAt,
 		ExitCode:     exitCode,
 		RestartCount: info.RestartCount,
@@ -347,9 +355,9 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 		if len(ctr.Names) > 0 {
 			name = strings.TrimPrefix(ctr.Names[0], "/")
 		}
-		var startedAt time.Time
+		var createdAt time.Time
 		if ctr.Created > 0 {
-			startedAt = time.Unix(ctr.Created, 0)
+			createdAt = time.Unix(ctr.Created, 0)
 		}
 		var ports []rt.PortBinding
 		seenPorts := map[string]bool{}
@@ -423,7 +431,7 @@ func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.Contain
 			NetworkInfos: netInfos,
 			State:        ctr.State,
 			Labels:       ctr.Labels,
-			StartedAt:    startedAt,
+			CreatedAt:    createdAt,
 			Ports:        ports,
 		})
 	}

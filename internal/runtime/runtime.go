@@ -137,6 +137,7 @@ type ContainerInfo struct {
 	NetworkInfos []ContainerNetworkInfo
 	State        string
 	Labels       map[string]string
+	CreatedAt    time.Time
 	StartedAt    time.Time
 	ExitCode     int
 	Ports        []PortBinding

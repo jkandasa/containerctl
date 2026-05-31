@@ -231,7 +231,7 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `containerctl apply [name...]`                                   | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. | 0 ok, 1 error, 2 partial failure         |
 | `containerctl diff [name...]`                                    | Show planned actions without making changes.                                                                                              | 0 no changes, 3 changes pending, 1 error |
-| `containerctl status [name...]`                                  | Show all managed containers, their state, drift, and uptime. `-o json\|yaml` adds network IPs, mount paths, image digest/size, and resource limits. | 0 ok, 1 error                            |
+| `containerctl status [name...]`                                  | Show all managed containers, their state, ports, created age, uptime, restarts, and sync status. `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. | 0 ok, 1 error                            |
 | `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
 | `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
 | `containerctl restart <name...> \| --all [--follow]`             | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
@@ -334,12 +334,12 @@ Networks are printed similarly (`network <name>  created` / `network <name>  rem
 ### Output: `status` console format
 
 ```
-NAME       STATE         IMAGE            UPTIME    DRIFT
-postgres   running       postgres:16      4d 2h     no
-nginx      running       nginx:1.27       4d 2h     yes (image, env)
-redis      stopped       redis:7.2        -         -
-backups    disabled      restic:0.16      -         -
-old-app    declared-off  -                -         -
+NAME       STATE         IMAGE            CREATED   UPTIME    SYNC
+postgres   running       postgres:16      30d 2h    4d 2h     ok
+nginx      running       nginx:1.27       30d 2h    4d 2h     drift
+redis      stopped       redis:7.2        10d 5h    -         ok
+backups    disabled      restic:0.16      10d 5h    -         -
+old-app    declared-off  -                -         -         -
 ```
 
 State values: `running`, `stopped` (exited — apply will restart), `disabled` (in state file — apply skips), `declared-off` (YAML `disabled: true`, no container present), `missing` (in YAML, not on host — apply will create).
@@ -587,6 +587,7 @@ type Filters struct {
 // ContainerInfo is returned by ListContainers and InspectContainer.
 // Mounts and NetworkInfos are populated by ListContainers and carry
 // full path and network details for structured output.
+// CreatedAt, StartedAt, and LastRestart are in the host's local timezone.
 type ContainerInfo struct {
     ID           string
     Name         string
@@ -596,6 +597,7 @@ type ContainerInfo struct {
     NetworkInfos []ContainerNetworkInfo
     State        string
     Labels       map[string]string
+    CreatedAt    time.Time
     StartedAt    time.Time
     ExitCode     int
     Ports        []PortBinding

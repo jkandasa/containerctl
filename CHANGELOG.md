@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `status` now shows a **CREATED** column (between PORTS and UPTIME) displaying how long ago the container was created (e.g. `16d 4h`). Previously only uptime (time since last start) was shown, and it was incorrectly derived from the container creation timestamp. UPTIME now correctly reflects the time since the container last started. Both `created_at` and `started_at` are included in `-o json|yaml` output.
+
+### Fixed
+- `status`: containers in the `disabled` state (disabled via state file, container still present on host) now correctly show CREATED and UPTIME. Previously both were always `-` because the `InspectContainer` detail was not consulted for that code path.
+- `status -o json|yaml`: `created_at`, `started_at`, and `last_restart` are now always emitted in the host's local timezone (e.g. `2026-05-31T06:51:27+05:30`) for consistent, human-readable output.
+
 ---
 
 ## [v1.7.0] - 2026-05-27

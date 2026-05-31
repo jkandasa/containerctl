@@ -198,8 +198,12 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			entry.Ports = portBindingsToEntries(lc.Ports)
 			entry.Networks = networkEntries(lc.NetworkInfos)
 			entry.Mounts = mountEntries(lc.Mounts)
-			if !lc.StartedAt.IsZero() {
-				entry.StartedAt = &lc.StartedAt
+			entry.CreatedAt = timePtr(lc.CreatedAt)
+			entry.StartedAt = timePtr(lc.StartedAt)
+			if d := dataByID[lc.ID]; d != nil {
+				if detail := d.detail; detail != nil {
+					applyDetailToEntry(&entry, detail, lc.State)
+				}
 			}
 			entry.Note = "disabled via state file"
 			entries = append(entries, entry)
@@ -213,9 +217,8 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 		entry.Ports = portBindingsToEntries(lc.Ports)
 		entry.Networks = networkEntries(lc.NetworkInfos)
 		entry.Mounts = mountEntries(lc.Mounts)
-		if !lc.StartedAt.IsZero() {
-			entry.StartedAt = &lc.StartedAt
-		}
+		entry.CreatedAt = timePtr(lc.CreatedAt)
+		entry.StartedAt = timePtr(lc.StartedAt)
 
 		if d := dataByID[lc.ID]; d != nil {
 			if d.meta.Digest != "" {
@@ -233,24 +236,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 				}
 			}
 			if detail := d.detail; detail != nil {
-				entry.RestartCount = detail.RestartCount
-				if !detail.LastRestart.IsZero() {
-					entry.LastRestart = &detail.LastRestart
-				}
-				if detail.ExitCode != 0 || lc.State == "exited" {
-					ec := detail.ExitCode
-					entry.ExitCode = &ec
-				}
-				if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
-					rl := &render.ResourceLimits{Pids: r.PidsLimit}
-					if r.NanoCPUs > 0 {
-						rl.CPUs = formatCPUs(r.NanoCPUs)
-					}
-					if r.MemoryBytes > 0 {
-						rl.Memory = formatImageSize(r.MemoryBytes)
-					}
-					entry.Resources = rl
-				}
+				applyDetailToEntry(&entry, detail, lc.State)
 			}
 		}
 
@@ -284,11 +270,10 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 			Ports:         portBindingsToEntries(lc.Ports),
 			Networks:      networkEntries(lc.NetworkInfos),
 			Mounts:        mountEntries(lc.Mounts),
+			CreatedAt:     timePtr(lc.CreatedAt),
+			StartedAt:     timePtr(lc.StartedAt),
 			Sync:          "-",
 			Note:          "not in stack.yaml (orphan)",
-		}
-		if !lc.StartedAt.IsZero() {
-			entry.StartedAt = &lc.StartedAt
 		}
 		if d := dataByID[lc.ID]; d != nil {
 			if d.meta.Digest != "" {
@@ -306,24 +291,7 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 				}
 			}
 			if detail := d.detail; detail != nil {
-				entry.RestartCount = detail.RestartCount
-				if !detail.LastRestart.IsZero() {
-					entry.LastRestart = &detail.LastRestart
-				}
-				if detail.ExitCode != 0 || lc.State == "exited" {
-					ec := detail.ExitCode
-					entry.ExitCode = &ec
-				}
-				if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
-					rl := &render.ResourceLimits{Pids: r.PidsLimit}
-					if r.NanoCPUs > 0 {
-						rl.CPUs = formatCPUs(r.NanoCPUs)
-					}
-					if r.MemoryBytes > 0 {
-						rl.Memory = formatImageSize(r.MemoryBytes)
-					}
-					entry.Resources = rl
-				}
+				applyDetailToEntry(&entry, detail, lc.State)
 			}
 		}
 		entries = append(entries, entry)
@@ -453,4 +421,41 @@ func formatImageSize(b int64) string {
 // formatCPUs converts NanoCPUs to a decimal CPU string (e.g. "2.0", "0.5").
 func formatCPUs(nanoCPUs int64) string {
 	return fmt.Sprintf("%.2g", float64(nanoCPUs)/1e9)
+}
+
+// timePtr returns a pointer to a copy of t, or nil if t is the zero time.
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// applyDetailToEntry merges InspectContainer fields into entry, overriding
+// list-path values with the more precise inspect values.
+func applyDetailToEntry(entry *render.StatusEntry, detail *rt.ContainerInfo, containerState string) {
+	if !detail.CreatedAt.IsZero() {
+		entry.CreatedAt = &detail.CreatedAt
+	}
+	if !detail.StartedAt.IsZero() {
+		entry.StartedAt = &detail.StartedAt
+	}
+	entry.RestartCount = detail.RestartCount
+	if !detail.LastRestart.IsZero() {
+		entry.LastRestart = &detail.LastRestart
+	}
+	if detail.ExitCode != 0 || containerState == "exited" {
+		ec := detail.ExitCode
+		entry.ExitCode = &ec
+	}
+	if r := detail.Resources; r.NanoCPUs > 0 || r.MemoryBytes > 0 || r.PidsLimit > 0 {
+		rl := &render.ResourceLimits{Pids: r.PidsLimit}
+		if r.NanoCPUs > 0 {
+			rl.CPUs = formatCPUs(r.NanoCPUs)
+		}
+		if r.MemoryBytes > 0 {
+			rl.Memory = formatImageSize(r.MemoryBytes)
+		}
+		entry.Resources = rl
+	}
 }

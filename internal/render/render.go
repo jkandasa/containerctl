@@ -155,6 +155,7 @@ type StatusEntry struct {
 	Ports           []PortEntry     `json:"ports"                      yaml:"ports"`
 	Networks        []NetworkEntry  `json:"networks,omitempty"         yaml:"networks,omitempty"`
 	Mounts          []MountEntry    `json:"mounts,omitempty"           yaml:"mounts,omitempty"`
+	CreatedAt       *time.Time      `json:"created_at,omitempty"       yaml:"created_at,omitempty"`
 	StartedAt       *time.Time      `json:"started_at,omitempty"       yaml:"started_at,omitempty"`
 	RestartCount    int             `json:"restart_count"              yaml:"restart_count"`
 	LastRestart     *time.Time      `json:"last_restart,omitempty"     yaml:"last_restart,omitempty"`
@@ -205,18 +206,18 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 		}
 	}
 
-	const stateW, uptimeW, syncW, cpuW, memW = 14, 10, 5, 7, 10
+	const stateW, createdW, uptimeW, syncW, cpuW, memW = 14, 10, 10, 5, 7, 10
 	c := colors
 
 	var headerLine string
 	if hasStats {
-		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
-			uptimeW, "UPTIME", restartsW, "RESTARTS", cpuW, "CPU", memW, "MEM", syncW, "SYNC", "NOTE")
+			createdW, "CREATED", uptimeW, "UPTIME", restartsW, "RESTARTS", cpuW, "CPU", memW, "MEM", syncW, "SYNC", "NOTE")
 	} else {
-		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		headerLine = fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s",
 			nameW, "NAME", imageW, "IMAGE", stateW, "STATE", portsW, "PORTS",
-			uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
+			createdW, "CREATED", uptimeW, "UPTIME", restartsW, "RESTARTS", syncW, "SYNC", "NOTE")
 	}
 	fmt.Fprintln(w, headerLine)
 	fmt.Fprintln(w, strings.Repeat("-", len(headerLine)))
@@ -238,6 +239,10 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 			syncColor = c.Yellow
 		}
 
+		created := "-"
+		if e.CreatedAt != nil {
+			created = FormatUptime(*e.CreatedAt)
+		}
 		uptime := "-"
 		if e.StartedAt != nil {
 			uptime = FormatUptime(*e.StartedAt)
@@ -252,11 +257,12 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 			if e.MemoryUsed != "" {
 				mem = e.MemoryUsed
 			}
-			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
+			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
 				nameW, e.Name,
 				imageW, e.Image,
 				stateColor, stateW, e.State, c.Reset,
 				portsW, textPorts(e.Ports),
+				createdW, created,
 				uptimeW, uptime,
 				restartsW, textRestarts(e.RestartCount, e.LastRestart),
 				cpuW, cpu,
@@ -264,11 +270,12 @@ func renderStatusText(w io.Writer, entries []StatusEntry, colors Colors) {
 				syncColor, syncW, e.Sync, c.Reset,
 				e.Note)
 		} else {
-			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
+			fmt.Fprintf(w, "%-*s  %-*s  %s%-*s%s  %-*s  %-*s  %-*s  %-*s  %s%-*s%s  %s\n",
 				nameW, e.Name,
 				imageW, e.Image,
 				stateColor, stateW, e.State, c.Reset,
 				portsW, textPorts(e.Ports),
+				createdW, created,
 				uptimeW, uptime,
 				restartsW, textRestarts(e.RestartCount, e.LastRestart),
 				syncColor, syncW, e.Sync, c.Reset,
