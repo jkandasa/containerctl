@@ -66,6 +66,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: devel
+          target_commitish: ${{ github.sha }}
           name: devel (rolling)
           prerelease: true
           generate_release_notes: false
