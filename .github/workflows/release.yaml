@@ -61,6 +61,12 @@ jobs:
           body: ${{ steps.notes.outputs.body }}
           files: dist/*
 
+      - name: Delete existing devel release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete devel --cleanup-tag --yes || true
+
       - name: Release (devel rolling)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
