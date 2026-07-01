@@ -13,6 +13,8 @@ import (
 	"github.com/jkandasa/containerctl/internal/state"
 )
 
+var flagDryRun bool
+
 var applyCmd = &cobra.Command{
 	Use:   "apply [name...]",
 	Short: "Reconcile host to desired state defined in the YAML file",
@@ -20,6 +22,7 @@ var applyCmd = &cobra.Command{
 }
 
 func init() {
+	applyCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Show what would change without making any changes (exits 3 if changes pending)")
 	rootCmd.AddCommand(applyCmd)
 }
 
@@ -43,7 +46,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if err := pingRuntime(ctx, rt); err != nil {
 		return err
 	}
-	applyAuthFile(rt, stack.AuthFile)
+
+	if !flagDryRun {
+		applyAuthFile(rt, stack.AuthFile)
+	}
 
 	st, err := state.Load(stack.Project)
 	if err != nil {
@@ -59,12 +65,20 @@ func runApply(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "WARN: %s\n", w)
 	}
 
+	render.Plan(os.Stdout, plan, colors())
+
+	if flagDryRun {
+		if plan.HasChanges() {
+			os.Exit(3)
+		}
+		return nil
+	}
+
 	if !plan.HasChanges() {
 		fmt.Println("Nothing to do.")
 		return nil
 	}
 
-	render.Plan(os.Stdout, plan, colors())
 	fmt.Println()
 
 	// pull images for Create/Recreate

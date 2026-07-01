@@ -52,10 +52,9 @@ type connState struct {
 
 // cmdHelp maps each allowed command to its one-line description shown by "help".
 var cmdHelp = map[string]string{
-	"apply":   "reconcile host to desired state defined in the stack file",
+	"apply":   "reconcile host to desired state defined in the stack file  (--dry-run to preview)",
 	"update":  "check container images for updates; --apply to apply patch updates",
 	"clear":   "clear the terminal screen",
-	"diff":    "show what apply would change without making any changes",
 	"disable": "persistently disable a container (survives apply)",
 	"down":    "stop and remove managed containers",
 	"edit":    "open the active stack file in the browser editor (vim keybindings)",

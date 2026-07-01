@@ -11,7 +11,7 @@ No daemon. No cluster. One binary, one file.
 
 Running containers on a single host usually means a pile of shell scripts — one per container, inconsistent flags, drift you can't see. `containerctl` replaces that with a single source of truth:
 
-- **Drift detection.** `diff` and `status` show exactly what's out of sync before you touch anything.
+- **Drift detection.** `apply --dry-run` and `status` show exactly what's out of sync before you touch anything.
 - **Hash-driven reconciliation.** Only recreates a container when its config actually changed.
 - **Update awareness.** `update` queries the registry for newer semver tags and digest changes. `--apply` upgrades patch versions automatically.
 - **Safe by default.** Never touches containers it doesn't own. Partial `apply` never removes unrelated containers.
@@ -62,9 +62,9 @@ containers:
 ```
 
 ```sh
-containerctl diff      # preview what will change
-containerctl apply     # reconcile host to desired state
-containerctl status    # see running state and sync status
+containerctl apply --dry-run  # preview what will change
+containerctl apply            # reconcile host to desired state
+containerctl status           # see running state and sync status
 ```
 
 ---
@@ -73,8 +73,7 @@ containerctl status    # see running state and sync status
 
 | Command | Description |
 |---|---|
-| `apply [name...]` | Reconcile host to YAML. Names limit scope to those containers only. |
-| `diff [name...]` | Show what `apply` would change without making changes. Exit 3 if changes pending. |
+| `apply [name...] [--dry-run]` | Reconcile host to YAML. Names limit scope to those containers only. `--dry-run` shows the plan without making any changes (exits 3 if changes pending). |
 | `status [name...] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
 | `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
 | `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |

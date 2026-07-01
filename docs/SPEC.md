@@ -12,7 +12,7 @@ A single static Go binary plus a single YAML file that declaratively manages all
 - **Declarative.** YAML is the desired state; the host is reconciled toward it.
 - **Per-container scope.** Every operation can target one container by name or the whole stack.
 - **Two runtimes from day one.** Docker (official SDK) and Podman (via its Docker-compatible API socket), behind a `Runtime` interface.
-- **Drift visibility.** `diff` and `status` show exactly what will change before `apply` runs.
+- **Drift visibility.** `apply --dry-run` and `status` show exactly what will change before `apply` runs.
 - **Safe by default.** Only ever touches containers it owns (identified by a label).
 
 ### Non-goals (v1)
@@ -49,7 +49,6 @@ containerctl/
 ├── cmd/                    # cobra commands, one file per subcommand
 │   ├── root.go
 │   ├── apply.go
-│   ├── diff.go
 │   ├── status.go
 │   ├── upgrade.go              # repull command
 │   ├── restart.go          # stop → remove → create → start
@@ -81,12 +80,12 @@ containerctl/
 │   │   ├── runtime.go      # Runtime interface + shared types
 │   │   ├── docker/         # docker SDK implementation
 │   │   └── podman/         # podman implementation (Docker-compat socket first)
-│   ├── reconcile/          # diff plan + apply
+│   ├── reconcile/          # build plan + apply
 │   │   ├── plan.go         # Plan, Action (Create|Recreate|Skip|Remove|Disabled|DeclaredOff)
 │   │   └── reconcile.go    # Apply(ctx, plan, runtime, w) — streams per-container status
 │   ├── state/              # file-based persistent disabled state
 │   │   └── state.go        # Load/Save/IsDisabled/Disable/Enable/DisabledSet
-│   └── render/             # human + json output for status/diff/plan
+│   └── render/             # human + json output for status/apply/plan
 │       └── render.go
 ├── examples/
 │   └── stack.yaml
@@ -229,8 +228,7 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 
 | Command                                                          | Purpose                                                                                                                                   | Exit codes                               |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `containerctl apply [name...]`                                   | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. | 0 ok, 1 error, 2 partial failure         |
-| `containerctl diff [name...]`                                    | Show planned actions without making changes.                                                                                              | 0 no changes, 3 changes pending, 1 error |
+| `containerctl apply [name...] [--dry-run]`                       | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
 | `containerctl status [name...]`                                  | Show all managed containers, their state, ports, created age, uptime, restarts, and sync status. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
 | `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
 | `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
@@ -301,7 +299,7 @@ Pick the most declarative one that fits: prefer `disabled: true` in YAML for any
 - `--no-color` — disable ANSI colors (also respects the `NO_COLOR` environment variable).
 - `--project NAME` — override YAML's `project:` (use with care; affects which containers are considered managed).
 
-### Output: `diff` / `apply` plan format
+### Output: `apply` / `apply --dry-run` plan format
 
 ```
 Project: home-services
@@ -767,7 +765,7 @@ containers:
   - `0` success / no-op.
   - `1` configuration or runtime error (nothing was changed).
   - `2` partial failure during apply (some containers reconciled, some didn't).
-  - `3` `diff` only: changes are pending.
+  - `3` `apply --dry-run` only: changes are pending.
 
 ---
 
@@ -949,10 +947,9 @@ Allowed commands:
 
 | User input | Dispatch |
 |-----------|----------|
-| `apply [name...]` | subprocess |
+| `apply [name...] [--dry-run]` | subprocess |
 | `update [name...] [--apply] [--follow]` | subprocess |
 | `clear` | built-in: sends `{"type":"clear"}` |
-| `diff [name...]` | subprocess |
 | `disable <name...>` | subprocess |
 | `down [name...]` | subprocess |
 | `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `diff` command removed. Use `apply --dry-run` instead; same output and exit codes (0 no changes, 3 changes pending).
+
 ---
 
 ## [v1.8.0] - 2026-06-01
