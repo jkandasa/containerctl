@@ -28,7 +28,7 @@ var checkUpdateCmd = &cobra.Command{
 	Short: "Check registry for image updates",
 	Long: `Check all (or named) containers against their registry for newer images.
 
-Semver-tagged images are compared by version; floating tags (latest, edge, …)
+Semver tagged images are compared by version; floating tags (latest, edge, …)
 are compared by digest. Manual-policy containers are reported but never applied.
 
 Use --apply to automatically pull and recreate containers with patch or minor
@@ -47,8 +47,8 @@ func init() {
 }
 
 type imageUpdateStatus struct {
-	name     string
-	image    string
+	name  string
+	image string
 	// status: "up-to-date" | "patch update" | "major update" | "patch+major" |
 	//         "digest changed" | "not pulled" | "error"
 	status   string
