@@ -100,6 +100,13 @@ func (s *Server) handleStatusAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	// The browser editor is the only client of this endpoint, so it carries the
+	// same gate as the "edit" command. Without it, any authenticated session
+	// could read or overwrite any file the server process can reach.
+	if !s.cfg.EditEnabled {
+		http.Error(w, `{"error":"edit is disabled; set serve.edit.enabled: true in your stack.yaml and restart"}`, http.StatusForbidden)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.handleFileRead(w, r)
@@ -190,7 +197,22 @@ func resolveFilePath(raw string) (string, error) {
 	if err != nil || abs != raw {
 		return "", fmt.Errorf("path must be absolute")
 	}
+	if !isStackFilePath(abs) {
+		return "", fmt.Errorf("path must be a .yaml or .yml file")
+	}
 	return abs, nil
+}
+
+// isStackFilePath restricts the editor to stack files. "use" accepts any
+// absolute path, so the target cannot be pinned to a single directory — but
+// keeping it to YAML puts shell profiles, authorized_keys and unit files out of
+// reach of a hijacked session.
+func isStackFilePath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".yaml", ".yml":
+		return true
+	}
+	return false
 }
 
 // clientIP extracts the originating IP from the request, honouring

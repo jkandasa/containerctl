@@ -45,6 +45,9 @@ type Runtime interface {
 	// LocalImageMeta returns digest and size of the image in the local cache.
 	// Returns zero values if the image has not been pulled yet.
 	LocalImageMeta(ctx context.Context, image string) (ImageMeta, error)
+	// InspectImageConfig returns the default Cmd, Entrypoint, and Labels baked
+	// into the image. Returns nil (no error) when the image is not present locally.
+	InspectImageConfig(ctx context.Context, image string) (*ImageConfig, error)
 	// RemoteImageDigest queries the registry for the current digest of image.
 	RemoteImageDigest(ctx context.Context, image string) (string, error)
 	// CheckTagUpdates queries the registry for semver tags newer than the one in image.
@@ -76,30 +79,30 @@ type EngineInfo struct {
 }
 
 type ContainerSpec struct {
-	Name          string
-	Image         string
-	Command       []string
-	Entrypoint    []string
-	Env           map[string]string
-	Labels        map[string]string
-	Ports         []PortBinding
-	Mounts        []Mount
+	Name           string
+	Image          string
+	Command        []string
+	Entrypoint     []string
+	Env            map[string]string
+	Labels         map[string]string
+	Ports          []PortBinding
+	Mounts         []Mount
 	Networks       []string
 	NetworkAliases []string
-	Resources     Resources
-	Healthcheck   *Healthcheck
-	RestartPolicy string
-	User          string
-	WorkingDir    string
-	Hostname      string
-	DNS           []string
-	GroupAdd      []string
-	CapAdd        []string
-	CapDrop       []string
-	Privileged    bool
-	SecurityOpt   []string
-	ReadOnly      bool
-	Tmpfs         []string
+	Resources      Resources
+	Healthcheck    *Healthcheck
+	RestartPolicy  string
+	User           string
+	WorkingDir     string
+	Hostname       string
+	DNS            []string
+	GroupAdd       []string
+	CapAdd         []string
+	CapDrop        []string
+	Privileged     bool
+	SecurityOpt    []string
+	ReadOnly       bool
+	Tmpfs          []string
 }
 
 type PortBinding struct {
@@ -144,6 +147,25 @@ type ContainerInfo struct {
 	RestartCount int
 	LastRestart  time.Time // time of last exit before a restart; zero if never restarted
 	Resources    ContainerResources
+
+	// Fields populated by InspectContainer (used by generate command).
+	Env            []string
+	Command        []string
+	Entrypoint     []string
+	Healthcheck    *Healthcheck
+	User           string
+	WorkingDir     string
+	Hostname       string
+	RestartPolicy  string
+	DNS            []string
+	GroupAdd       []string
+	CapAdd         []string
+	CapDrop        []string
+	Privileged     bool
+	SecurityOpt    []string
+	ReadOnly       bool
+	Tmpfs          []string
+	NetworkAliases map[string][]string // per-network aliases keyed by network name
 }
 
 type ContainerMount struct {
@@ -169,6 +191,16 @@ type ContainerResources struct {
 type ImageMeta struct {
 	Digest string
 	Size   int64 // bytes; 0 if unavailable
+}
+
+type ImageConfig struct {
+	Cmd         []string
+	Entrypoint  []string
+	Env         []string // raw "KEY=VALUE" pairs from image defaults
+	Labels      map[string]string
+	Healthcheck *Healthcheck
+	User        string
+	WorkingDir  string
 }
 
 type ContainerUsage struct {
@@ -201,12 +233,12 @@ type ImageInfo struct {
 }
 
 type VolumeInfo struct {
-	Name       string            `json:"name"               yaml:"name"`
-	Driver     string            `json:"driver"             yaml:"driver"`
-	Mountpoint string            `json:"mountpoint,omitempty" yaml:"mountpoint,omitempty"`
+	Name       string `json:"name"               yaml:"name"`
+	Driver     string `json:"driver"             yaml:"driver"`
+	Mountpoint string `json:"mountpoint,omitempty" yaml:"mountpoint,omitempty"`
 	// Size is nil when not fetched; -1 when the driver does not report usage.
-	Size       *int64            `json:"size,omitempty"     yaml:"size,omitempty"`
-	Labels     map[string]string `json:"labels,omitempty"   yaml:"labels,omitempty"`
+	Size   *int64            `json:"size,omitempty"     yaml:"size,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"   yaml:"labels,omitempty"`
 }
 
 type LogOptions struct {
@@ -218,10 +250,10 @@ type LogOptions struct {
 
 // ExecOptions configures a container exec session.
 type ExecOptions struct {
-	Command     []string  // command to run; defaults to ["/bin/sh"] in the implementation
-	Tty         bool      // allocate a pseudo-TTY
-	Interactive bool      // keep stdin open
-	Env         []string  // additional env vars as KEY=VALUE
+	Command     []string // command to run; defaults to ["/bin/sh"] in the implementation
+	Tty         bool     // allocate a pseudo-TTY
+	Interactive bool     // keep stdin open
+	Env         []string // additional env vars as KEY=VALUE
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer

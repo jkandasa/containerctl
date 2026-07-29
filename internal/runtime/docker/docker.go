@@ -89,6 +89,45 @@ func (c *Client) LocalImageMeta(ctx context.Context, img string) (rt.ImageMeta, 
 	return rt.ImageMeta{Digest: digest, Size: info.Size}, nil
 }
 
+func (c *Client) InspectImageConfig(ctx context.Context, img string) (*rt.ImageConfig, error) {
+	info, err := c.cli.ImageInspect(ctx, img)
+	if err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inspect image %s: %w", img, err)
+	}
+	if info.Config == nil {
+		return nil, nil
+	}
+	cfg := &rt.ImageConfig{
+		Cmd:        info.Config.Cmd,
+		Entrypoint: info.Config.Entrypoint,
+		Env:        info.Config.Env,
+		Labels:     info.Config.Labels,
+		User:       info.Config.User,
+		WorkingDir: info.Config.WorkingDir,
+	}
+	cfg.Healthcheck = toHealthcheck(info.Config.Healthcheck)
+	return cfg, nil
+}
+
+// toHealthcheck converts a Docker health config, returning nil when none is
+// configured. A ["NONE"] test is preserved: it is how an image or container
+// explicitly disables an inherited healthcheck.
+func toHealthcheck(hc *container.HealthConfig) *rt.Healthcheck {
+	if hc == nil || len(hc.Test) == 0 {
+		return nil
+	}
+	return &rt.Healthcheck{
+		Test:        hc.Test,
+		Interval:    hc.Interval,
+		Timeout:     hc.Timeout,
+		StartPeriod: hc.StartPeriod,
+		Retries:     hc.Retries,
+	}
+}
+
 func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, error) {
 	u, p := credentialsFor(c.authFile, img)
 	var creds *registry.Credentials
@@ -119,13 +158,15 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsa
 			OnlineCPUs  uint32 `json:"online_cpus"`
 		} `json:"cpu_stats"`
 		PreCPUStats struct {
-			CPUUsage    struct{ TotalUsage uint64 `json:"total_usage"` } `json:"cpu_usage"`
+			CPUUsage struct {
+				TotalUsage uint64 `json:"total_usage"`
+			} `json:"cpu_usage"`
 			SystemUsage uint64 `json:"system_cpu_usage"`
 		} `json:"precpu_stats"`
 		MemoryStats struct {
-			Usage    uint64            `json:"usage"`
-			Failcnt  uint64            `json:"failcnt"`
-			Stats    map[string]uint64 `json:"stats"`
+			Usage   uint64            `json:"usage"`
+			Failcnt uint64            `json:"failcnt"`
+			Stats   map[string]uint64 `json:"stats"`
 		} `json:"memory_stats"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
@@ -228,17 +269,17 @@ func (c *Client) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (st
 	}
 
 	hostCfg := &container.HostConfig{
-		PortBindings:  portBindings,
-		Binds:         buildBinds(spec.Mounts),
-		RestartPolicy: container.RestartPolicy{Name: parseRestartPolicy(spec.RestartPolicy)},
-		DNS:           spec.DNS,
-		GroupAdd:      spec.GroupAdd,
-		CapAdd:        spec.CapAdd,
-		CapDrop:       spec.CapDrop,
-		Privileged:    spec.Privileged,
-		SecurityOpt:   spec.SecurityOpt,
+		PortBindings:   portBindings,
+		Binds:          buildBinds(spec.Mounts),
+		RestartPolicy:  container.RestartPolicy{Name: parseRestartPolicy(spec.RestartPolicy)},
+		DNS:            spec.DNS,
+		GroupAdd:       spec.GroupAdd,
+		CapAdd:         spec.CapAdd,
+		CapDrop:        spec.CapDrop,
+		Privileged:     spec.Privileged,
+		SecurityOpt:    spec.SecurityOpt,
 		ReadonlyRootfs: spec.ReadOnly,
-		Tmpfs:         tmpfsMap,
+		Tmpfs:          tmpfsMap,
 		Resources: container.Resources{
 			NanoCPUs:  spec.Resources.NanoCPUs,
 			Memory:    spec.Resources.MemoryBytes,
@@ -333,19 +374,119 @@ func (c *Client) InspectContainer(ctx context.Context, nameOrID string) (*rt.Con
 		}
 	}
 	name := strings.TrimPrefix(info.Name, "/")
-	return &rt.ContainerInfo{
-		ID:           info.ID,
-		Name:         name,
-		Image:        info.Config.Image,
-		State:        state,
-		Labels:       info.Config.Labels,
-		CreatedAt:    createdAt,
-		StartedAt:    startedAt,
-		ExitCode:     exitCode,
-		RestartCount: info.RestartCount,
-		LastRestart:  lastRestart,
-		Resources:    resources,
-	}, nil
+
+	var mounts []rt.ContainerMount
+	for _, m := range info.Mounts {
+		mounts = append(mounts, rt.ContainerMount{
+			Type:        string(m.Type),
+			Name:        m.Name,
+			Source:      m.Source,
+			Destination: m.Destination,
+			ReadOnly:    !m.RW,
+		})
+	}
+
+	var ports []rt.PortBinding
+	seenPorts := map[string]bool{}
+	if info.HostConfig != nil {
+		for portProto, bindings := range info.HostConfig.PortBindings {
+			cp := portProto.Port()
+			proto := portProto.Proto()
+			for _, b := range bindings {
+				// Normalise IP: treat 0.0.0.0 and :: as "all interfaces" (no IP prefix).
+				ip := b.HostIP
+				if ip == "0.0.0.0" || ip == "::" {
+					ip = ""
+				}
+				// Docker reports one entry per address family; deduplicate by
+				// hostPort:containerPort/proto so each binding appears only once.
+				key := fmt.Sprintf("%s:%s:%s/%s", ip, b.HostPort, cp, proto)
+				if seenPorts[key] {
+					continue
+				}
+				seenPorts[key] = true
+				// Track container port as published so we don't repeat it as exposed-only.
+				seenPorts[fmt.Sprintf("c:%s/%s", cp, proto)] = true
+				ports = append(ports, rt.PortBinding{
+					HostIP:        ip,
+					HostPort:      b.HostPort,
+					ContainerPort: cp,
+					Protocol:      proto,
+				})
+			}
+		}
+	}
+	// Exposed-only ports (internal only, no host binding).
+	if info.Config != nil {
+		for portProto := range info.Config.ExposedPorts {
+			key := fmt.Sprintf("c:%s/%s", portProto.Port(), portProto.Proto())
+			if seenPorts[key] {
+				continue
+			}
+			seenPorts[key] = true
+			ports = append(ports, rt.PortBinding{
+				ContainerPort: portProto.Port(),
+				Protocol:      portProto.Proto(),
+			})
+		}
+	}
+
+	var netInfos []rt.ContainerNetworkInfo
+	netAliases := map[string][]string{}
+	if info.NetworkSettings != nil {
+		for n, ep := range info.NetworkSettings.Networks {
+			ni := rt.ContainerNetworkInfo{Name: n}
+			if ep != nil {
+				ni.IPAddress = ep.IPAddress
+				ni.Gateway = ep.Gateway
+				netAliases[n] = ep.Aliases
+			}
+			netInfos = append(netInfos, ni)
+		}
+	}
+
+	ci := &rt.ContainerInfo{
+		ID:             info.ID,
+		Name:           name,
+		State:          state,
+		CreatedAt:      createdAt,
+		StartedAt:      startedAt,
+		ExitCode:       exitCode,
+		RestartCount:   info.RestartCount,
+		LastRestart:    lastRestart,
+		Resources:      resources,
+		Mounts:         mounts,
+		Ports:          ports,
+		NetworkInfos:   netInfos,
+		NetworkAliases: netAliases,
+	}
+
+	if info.Config != nil {
+		ci.Image = info.Config.Image
+		ci.Labels = info.Config.Labels
+		ci.Env = info.Config.Env
+		ci.Command = info.Config.Cmd
+		ci.Entrypoint = info.Config.Entrypoint
+		ci.User = info.Config.User
+		ci.WorkingDir = info.Config.WorkingDir
+		ci.Hostname = info.Config.Hostname
+		ci.Healthcheck = toHealthcheck(info.Config.Healthcheck)
+	}
+	if info.HostConfig != nil {
+		ci.RestartPolicy = string(info.HostConfig.RestartPolicy.Name)
+		ci.DNS = info.HostConfig.DNS
+		ci.GroupAdd = info.HostConfig.GroupAdd
+		ci.CapAdd = info.HostConfig.CapAdd
+		ci.CapDrop = info.HostConfig.CapDrop
+		ci.Privileged = info.HostConfig.Privileged
+		ci.SecurityOpt = info.HostConfig.SecurityOpt
+		ci.ReadOnly = info.HostConfig.ReadonlyRootfs
+		for mp := range info.HostConfig.Tmpfs {
+			ci.Tmpfs = append(ci.Tmpfs, mp)
+		}
+	}
+
+	return ci, nil
 }
 
 func (c *Client) ListContainers(ctx context.Context, f rt.Filters) ([]rt.ContainerInfo, error) {

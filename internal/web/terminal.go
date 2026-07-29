@@ -52,28 +52,29 @@ type connState struct {
 
 // cmdHelp maps each allowed command to its one-line description shown by "help".
 var cmdHelp = map[string]string{
-	"apply":   "reconcile host to desired state defined in the stack file  (--dry-run to preview)",
-	"update":  "check container images for updates; --apply to apply patch updates",
-	"clear":   "clear the terminal screen",
-	"disable": "persistently disable a container (survives apply)",
-	"down":    "stop and remove managed containers",
-	"edit":    "open the active stack file in the browser editor (vim keybindings)",
-	"enable":  "re-enable a previously disabled container",
-	"exec":    "run a non-interactive command in a container  e.g. exec <name> env",
-	"help":    "show this help",
-	"images":  "list local images  (flags: --unused  [name...])",
-	"logs":    "stream container logs  (flags: --follow  --tail N)",
+	"apply":    "reconcile host to desired state defined in the stack file  (--dry-run to preview)",
+	"clear":    "clear the terminal screen",
+	"disable":  "persistently disable a container (survives apply)",
+	"down":     "stop and remove managed containers",
+	"edit":     "open the active stack file in the browser editor (vim keybindings)",
+	"enable":   "re-enable a previously disabled container",
+	"exec":     "run a non-interactive command in a container  e.g. exec <name> env",
+	"generate": "generate a stack.yaml from containers on the host  (-O FILE needs serve.edit.enabled)",
+	"help":     "show this help",
+	"images":   "list local images  (flags: --unused  [name...])",
+	"logs":     "stream container logs  (flags: --follow  --tail N)",
 	"networks": "list networks  (flag: --unused)",
-	"prune":   "remove unused host-wide resources  (flags: --images --volumes --networks --all --dry-run --force)",
-	"pull":    "pull images without reconciling",
-	"repull":  "force-pull the image and recreate a container",
-	"restart": "recreate containers from current config",
-	"start":   "start stopped containers",
-	"status":  "show state and sync status of managed containers",
-	"stop":    "stop containers (apply will restart them)",
-	"use":     "switch active stack file  e.g. use /path/to/other/stack.yaml",
-	"version": "print binary version and runtime info",
-	"volumes": "list local volumes  (flags: --unused  --size)",
+	"prune":    "remove unused host-wide resources  (flags: --images --volumes --networks --all --dry-run --force)",
+	"pull":     "pull images without reconciling",
+	"repull":   "force-pull the image and recreate a container",
+	"restart":  "recreate containers from current config",
+	"start":    "start stopped containers",
+	"status":   "show state and sync status of managed containers",
+	"stop":     "stop containers (apply will restart them)",
+	"update":   "check container images for updates; --apply to apply patch updates",
+	"use":      "switch active stack file  e.g. use /path/to/other/stack.yaml",
+	"version":  "print binary version and runtime info",
+	"volumes":  "list local volumes  (flags: --unused  --size)",
 }
 
 var allowedCmds = func() map[string]bool {
@@ -278,6 +279,27 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		// "generate -O FILE" makes the subprocess write to the server's disk,
+		// so it carries the same gate and the same .yaml restriction as the
+		// browser editor.
+		if name == "generate" {
+			if out, ok := generateOutPath(parts); ok {
+				var msg string
+				switch {
+				case !s.cfg.EditEnabled:
+					msg = "generate -O writes a file on the server; set serve.edit.enabled: true in your stack.yaml and restart, or run generate without -O and copy the output"
+				case !filepath.IsAbs(out) || !isStackFilePath(out):
+					msg = "generate -O requires an absolute path to a .yaml or .yml file"
+				}
+				if msg != "" {
+					send(wsMsg{Type: "error", Msg: msg})
+					finishCmd()
+					send(wsMsg{Type: "done"})
+					continue
+				}
+			}
+		}
+
 		if name == "exec" {
 			if !s.cfg.ExecEnabled {
 				send(wsMsg{Type: "error", Msg: "exec is disabled; set serve.exec.enabled: true in your stack.yaml and restart"})
@@ -478,6 +500,26 @@ func hasColorFlag(args []string) bool {
 	return false
 }
 
+// generateOutPath extracts the target of generate's -O/--out flag, reporting
+// whether the flag was given at all. An empty target still counts as given so
+// the caller can reject it.
+func generateOutPath(args []string) (string, bool) {
+	for i, a := range args {
+		switch {
+		case a == "-O" || a == "--out":
+			if i+1 < len(args) {
+				return args[i+1], true
+			}
+			return "", true
+		case strings.HasPrefix(a, "--out="):
+			return strings.TrimPrefix(a, "--out="), true
+		case strings.HasPrefix(a, "-O") && len(a) > 2:
+			return strings.TrimPrefix(a, "-O"), true
+		}
+	}
+	return "", false
+}
+
 func hasFileFlag(args []string) bool {
 	for _, a := range args {
 		if a == "--file" || a == "-f" {
@@ -502,9 +544,9 @@ var interactiveShells = map[string]bool{
 // going to open an interactive shell that needs real stdin — which the web
 // terminal cannot provide in its subprocess model.
 //
-//   exec <name>              → no command specified; defaults to /bin/sh
-//   exec <name> bash         → bare shell, no -c flag
-//   exec <name> /bin/bash    → same with full path
+//	exec <name>              → no command specified; defaults to /bin/sh
+//	exec <name> bash         → bare shell, no -c flag
+//	exec <name> /bin/bash    → same with full path
 func isInteractiveExec(parts []string) bool {
 	// parts[0]="exec"  parts[1]=<name>  parts[2+]=<cmd args...>
 	if len(parts) < 3 {

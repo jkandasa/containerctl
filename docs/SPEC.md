@@ -244,7 +244,34 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | `containerctl volumes [--unused] [--size]`                       | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (daemon-side scan). `-o json\|yaml` includes host mountpoint, size (when `--size` is given), and per-volume mount details. | 0 ok, 1 error |
 | `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
 | `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
+| `containerctl generate [name...] [-O FILE]`                      | Render a `stack.yaml` from containers that already exist on the host (import/migration aid). With no names, every container on the host is captured. Writes to stdout, or to `FILE` (created with mode `0600`) with `-O`. Never touches the host. | 0 ok, 1 error |
 | `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
+
+### `generate` — importing existing containers
+
+`generate` inspects containers (and the images behind them) and emits the equivalent declarative config. It is the inverse of `apply`, so the output feeds straight back in: for a container that containerctl already manages, `generate` followed by `apply --dry-run` reports **no changes**.
+
+Project and naming:
+
+- The project name comes from `--project`, else the `project:` of the stack file found via `-f`, else `myproject`.
+- Container names come from the `containerctl.name` label when present, otherwise the host container name with the `<project>_` prefix trimmed.
+- Networks are declared at the top level with the `<project>_` prefix trimmed, because `apply` adds it back. A network that does not carry the project prefix (e.g. a `docker compose` network) cannot be referenced as-is — `apply` would create `<project>_<name>` and attach the container there instead — so `generate` warns about it on stderr.
+- Duplicate container names (possible when importing several projects at once) are suffixed `-2`, `-3`, … since `apply` rejects duplicates.
+
+Omitted on purpose:
+
+| Not emitted | Why |
+| ----------- | --- |
+| Anything equal to the image default (`command`, `entrypoint`, `env`, `user`, `working_dir`, `labels`, `healthcheck`) | Keeps the file to what the operator actually chose. |
+| `hostname` when it equals the container name or the runtime's short-ID default | `apply` derives it from the name. |
+| `containerctl.*` and `com.docker.compose.*` labels | Tool bookkeeping; `apply` writes its own, and keeping compose labels would leave compose believing it still owns the container. |
+| Anonymous volumes | Runtime-generated IDs are not reproducible; emitted as commented-out entries plus a stderr warning so the operator can supply a real path. |
+| Exposed-only ports (no host binding) | Usually the image's own `EXPOSE` list. |
+| Network aliases the runtime adds itself (container name, hostname, short ID) | Not operator configuration. |
+| `env_file`, `depends_on`, `update_policy`, `disabled`, `data_path` | Not recoverable from a running container. |
+| `host` / `none` network modes, tmpfs mount options | Not expressible in the schema; reported as stderr warnings. |
+
+Output is deterministic — containers, networks, ports, volumes and tmpfs paths are sorted, so regenerating an unchanged host produces a byte-identical file. `env:` values are copied verbatim and routinely contain credentials, which is why `-O` creates the file with mode `0600`; review before committing.
 
 ### `restart` vs `repull` vs `apply` vs `update --apply`
 
@@ -955,6 +982,7 @@ Allowed commands:
 | `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |
 | `enable <name...>` | subprocess |
 | `exec <name> [cmd...]` | see below |
+| `generate [name...] [-O FILE]` | subprocess; `-O` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` path |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
 | `images [name...] [--unused]` | subprocess |
 | `logs <name> [--follow] [--tail N]` | subprocess |
@@ -1033,7 +1061,9 @@ Returns the file content as plain text. The response includes an `ETag` header s
 
 Reads the current file, recomputes its sha256, and compares with `If-Match`. If they match: writes the new content and returns 200. If they differ (another client wrote in the meantime): returns 409 Conflict with `{"error":"conflict"}`. The browser editor shows a red warning and preserves the user's unsaved edits so no work is lost.
 
-Only absolute paths that resolve to real files are accepted (`400` otherwise). The server does not restrict which files may be edited in v1; operators should rely on filesystem permissions and the session token for access control.
+**Gating and accepted paths.** The endpoint is the browser editor's transport, so it is gated on `serve.edit.enabled` exactly like the `edit` command — both methods return `403` when editing is disabled (the default). When enabled, the path must be absolute, must resolve to an existing file, and must end in `.yaml` or `.yml` (`400` otherwise); writes never create new files.
+
+The YAML restriction is deliberate but coarse: because `use` may point the session at any stack file, the target cannot be pinned to a single directory, so restricting the extension is what keeps shell profiles, `authorized_keys` and unit files out of reach of a hijacked session. Beyond that, operators still rely on filesystem permissions and the session token — a session with editing enabled can rewrite any stack file the server process can write, which is by design.
 
 ---
 
@@ -1180,6 +1210,7 @@ Frontend JS (xterm.js, CodeMirror) is downloaded at build time and embedded — 
 - The terminal allowlist eliminates arbitrary command injection — user input is parsed and only recognised commands are dispatched.
 - **`exec` is opt-in and double-gated:** `serve.exec.enabled: true` must be set in stack.yaml AND the container name must be in the allowlist (if `allowed` is non-empty). Exec gives full shell access to the container, so it must be deliberately enabled.
 - **`edit` and `use` are opt-in** (see `serve.edit.enabled` / `serve.use.enabled`): the editor writes to files on disk; `use` allows browsing other stacks. Both default to disabled for minimal-privilege deployments.
+- **Every server-side write path honours `serve.edit.enabled`.** That covers the `edit` command, the `/api/v1/file` endpoint behind it (§12.9), and `generate -O FILE`, which makes the subprocess write to the server's disk. All three additionally require an absolute `.yaml`/`.yml` target, so an authenticated session cannot create or overwrite arbitrary files. `generate` without `-O` writes only to the terminal and needs no gate.
 - WebSocket origin check: the server compares the `Origin` header against the request `Host`; cross-origin WebSocket upgrades are rejected.
 - When `--tls=none`, the operator is responsible for TLS termination at the reverse proxy. A startup warning is printed to stderr.
 - Client IP is read from `X-Forwarded-For` when present (for rate limiting behind a proxy). Operators should ensure untrusted clients cannot spoof this header.
