@@ -75,7 +75,7 @@ containerctl status           # see running state and sync status
 |---|---|
 | `apply [name...] [--dry-run]` | Reconcile host to YAML. Names limit scope to those containers only. `--dry-run` shows the plan without making any changes (exits 3 if changes pending). |
 | `status [name...] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
-| `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. `--follow` streams logs after applying (requires `--apply` and exactly one container name). |
+| `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. Containers held back by `update_policy: manual` or a persistent `disable` are reported with a `(manual)`/`(disabled)` suffix and never applied. `--follow` streams logs after applying (requires `--apply` and exactly one container name, and attaches only if that container was actually updated). |
 | `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |
 | `restart <name...> \| --all [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
@@ -90,7 +90,7 @@ containerctl status           # see running state and sync status
 | `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
 | `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
 | `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused host-wide resources (not project-scoped). `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
-| `generate [name...] [-O FILE]` | Write a `stack.yaml` describing containers that already exist on the host — the import path from `docker run`/`docker compose`. No names = every container on the host. Output goes to stdout, or to `FILE` with `-O` (created mode `0600`, since env values often hold secrets). Nothing on the host is modified. See [Importing existing containers](#importing-existing-containers). |
+| `generate [name...] [-O FILE]` | Write a `stack.yaml` describing containers that already exist on the host. This is the import path from `docker run`/`docker compose`. No names = every container on the host. Output goes to stdout, or to `FILE` with `-O` (created mode `0600`, since env values often hold secrets). Nothing on the host is modified. See [Importing existing containers](#importing-existing-containers). |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
@@ -307,20 +307,20 @@ containerctl generate --project home-services home-services_mosquitto home-servi
 containerctl apply --dry-run -f stack.yaml
 ```
 
-For containers containerctl already manages, `generate` → `apply --dry-run` reports **no changes** — the output is the inverse of what `apply` created.
+For containers containerctl already manages, `generate` → `apply --dry-run` reports **no changes**: the output is the inverse of what `apply` created.
 
 What it deliberately leaves out, so the file stays readable:
 
 - settings identical to the image defaults (`command`, `entrypoint`, `env`, `user`, `working_dir`, `labels`, `healthcheck`)
-- `containerctl.*` and `com.docker.compose.*` labels — tool bookkeeping, not your configuration
-- anonymous volumes — their IDs cannot be reproduced, so they are emitted as commented-out entries for you to replace with a real path
+- `containerctl.*` and `com.docker.compose.*` labels, which are tool bookkeeping rather than your configuration
+- anonymous volumes, whose IDs cannot be reproduced, so they are emitted as commented-out entries for you to replace with a real path
 - exposed-only ports (no host binding), and DNS aliases the runtime invents (container name, hostname, short ID)
-- `env_file`, `depends_on`, `update_policy` and `disabled` — not recoverable from a running container
+- `env_file`, `depends_on`, `update_policy` and `disabled`, none of which are recoverable from a running container
 
 Anything that cannot be represented is reported as a `WARN:` line on stderr, so `2>/dev/null` gives you a clean file and the warnings stay reviewable. Two cases deserve a look:
 
 - **Foreign networks.** containerctl prefixes networks with the project name, so a compose network like `shop_default` cannot be reused as-is: `apply` would create `<project>_shop_default` and attach the container there. Either rename the network or keep the container out of the generated stack.
-- **Secrets.** `env:` values are copied verbatim, tokens and passwords included. That is why `-O` creates the file with mode `0600` — review it before committing.
+- **Secrets.** `env:` values are copied verbatim, tokens and passwords included. That is why `-O` creates the file with mode `0600`. Review it before committing.
 
 Output is deterministic: regenerating an unchanged host produces a byte-identical file, so it is safe to keep the result in git and re-run.
 

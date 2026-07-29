@@ -204,7 +204,7 @@ func resolveFilePath(raw string) (string, error) {
 }
 
 // isStackFilePath restricts the editor to stack files. "use" accepts any
-// absolute path, so the target cannot be pinned to a single directory — but
+// absolute path, so the target cannot be pinned to a single directory, but
 // keeping it to YAML puts shell profiles, authorized_keys and unit files out of
 // reach of a hijacked session.
 func isStackFilePath(path string) bool {

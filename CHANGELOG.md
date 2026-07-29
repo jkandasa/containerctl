@@ -10,15 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `generate [name...]` — render a `stack.yaml` from containers that already exist on the host, for adopting containers created by `docker run` or `docker compose`. `-O FILE` writes to a file (mode `0600`, because `env:` values often carry credentials) instead of stdout; the host is never modified. Settings equal to the image defaults are omitted, `containerctl.*`/`com.docker.compose.*` labels are dropped, anonymous volumes are emitted as commented-out entries, and anything unrepresentable (foreign networks, `host`/`none` network modes, tmpfs options) is reported as a `WARN:` on stderr. Output is deterministic, and for containers containerctl already manages `generate` followed by `apply --dry-run` reports no changes.
+- `generate [name...]`: render a `stack.yaml` from containers that already exist on the host, for adopting containers created by `docker run` or `docker compose`. `-O FILE` writes to a file (mode `0600`, because `env:` values often carry credentials) instead of stdout; the host is never modified. Settings equal to the image defaults are omitted, `containerctl.*`/`com.docker.compose.*` labels are dropped, anonymous volumes are emitted as commented-out entries, and anything unrepresentable (foreign networks, `host`/`none` network modes, tmpfs options) is reported as a `WARN:` on stderr. Output is deterministic, and for containers containerctl already manages `generate` followed by `apply --dry-run` reports no changes.
 - Web terminal: `generate` added to the command allowlist. `generate -O FILE` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` target, since it writes to the server's disk.
 
 ### Security
-- **`/api/v1/file` now honours `serve.edit.enabled`.** The endpoint was gated only by the session cookie, so any authenticated browser session could read or overwrite any file the server process could reach — including when `edit` was disabled, which SPEC §12.15 documents as a minimal-privilege deployment. Both `GET` and `PUT` now return `403` unless editing is explicitly enabled.
-- **The file endpoint accepts only `.yaml`/`.yml` paths.** This replaces the v1 decision to leave file selection entirely to filesystem permissions (SPEC §12.9). `use` can point a session at any stack file, so the target cannot be restricted to one directory — but limiting the extension keeps shell profiles, `authorized_keys` and unit files out of reach of a hijacked session. The browser editor is unaffected: it only ever opens stack files.
+- **`/api/v1/file` now honours `serve.edit.enabled`.** The endpoint was gated only by the session cookie, so any authenticated browser session could read or overwrite any file the server process could reach, including when `edit` was disabled, which SPEC §12.15 documents as a minimal-privilege deployment. Both `GET` and `PUT` now return `403` unless editing is explicitly enabled.
+- **The file endpoint accepts only `.yaml`/`.yml` paths.** This replaces the v1 decision to leave file selection entirely to filesystem permissions (SPEC §12.9). `use` can point a session at any stack file, so the target cannot be restricted to one directory, but limiting the extension keeps shell profiles, `authorized_keys` and unit files out of reach of a hijacked session. The browser editor is unaffected: it only ever opens stack files.
 
 ### Changed
 - `diff` command removed. Use `apply --dry-run` instead; same output and exit codes (0 no changes, 3 changes pending).
+- Web terminal `help` now lists `--follow` for `update`, `restart` and `start`, which support it but did not advertise it.
+
+### Fixed
+- `update`: containers persistently disabled with `containerctl disable` (state file) were registry-checked, listed as having an update, then skipped silently by `--apply`. They now carry a `(disabled)` suffix in the STATUS column, are excluded from the apply set, and `--apply` reports which containers were held back and how to release them instead of printing the generic "Major version updates require manual tag changes" message.
+- `update --apply --follow`: `--follow` triggered whenever any container had a pending update, even if none was actually recreated, so following a disabled or failed container died with `Error: container "<name>" not found` and exit 1. It now attaches only to a container that was really updated, and otherwise prints `Not following logs: <name> was not updated.` and exits 0.
+- `update --apply`: a container that disappeared from the stack file between the check and the apply was skipped without a word; it now reports the skip on stderr.
+- `update --apply --follow`: stopping the log stream with Ctrl-C, which is the documented way to stop it, printed `Error: terminated signal received` and exited 1. Cancellation via the command's own signal handler is now a clean exit 0, matching `status --watch`.
 
 ---
 

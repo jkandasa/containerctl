@@ -45,6 +45,11 @@ func followContainerLogs(ctx context.Context, runtime rt.Runtime, stack *config.
 	}
 	defer rc.Close()
 	_, err = io.Copy(os.Stdout, rc)
+	if ctx.Err() != nil {
+		// The caller's signal handler cancelled us. Ctrl-C is how the operator
+		// is told to stop following, so it is a clean exit, not a failure.
+		return nil
+	}
 	return err
 }
 

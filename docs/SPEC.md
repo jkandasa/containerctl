@@ -230,7 +230,7 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `containerctl apply [name...] [--dry-run]`                       | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
 | `containerctl status [name...]`                                  | Show all managed containers, their state, ports, created age, uptime, restarts, and sync status. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
-| `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name). Skips containers with `disabled: true` or `update_policy: manual`. | 0 ok, 1 error |
+| `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |
 | `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
 | `containerctl restart <name...> \| --all [--follow]`             | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
 | `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
@@ -247,7 +247,7 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | `containerctl generate [name...] [-O FILE]`                      | Render a `stack.yaml` from containers that already exist on the host (import/migration aid). With no names, every container on the host is captured. Writes to stdout, or to `FILE` (created with mode `0600`) with `-O`. Never touches the host. | 0 ok, 1 error |
 | `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
 
-### `generate` — importing existing containers
+### `generate`: importing existing containers
 
 `generate` inspects containers (and the images behind them) and emits the equivalent declarative config. It is the inverse of `apply`, so the output feeds straight back in: for a container that containerctl already manages, `generate` followed by `apply --dry-run` reports **no changes**.
 
@@ -255,7 +255,7 @@ Project and naming:
 
 - The project name comes from `--project`, else the `project:` of the stack file found via `-f`, else `myproject`.
 - Container names come from the `containerctl.name` label when present, otherwise the host container name with the `<project>_` prefix trimmed.
-- Networks are declared at the top level with the `<project>_` prefix trimmed, because `apply` adds it back. A network that does not carry the project prefix (e.g. a `docker compose` network) cannot be referenced as-is — `apply` would create `<project>_<name>` and attach the container there instead — so `generate` warns about it on stderr.
+- Networks are declared at the top level with the `<project>_` prefix trimmed, because `apply` adds it back. A network that does not carry the project prefix (e.g. a `docker compose` network) cannot be referenced as-is, because `apply` would create `<project>_<name>` and attach the container there instead, so `generate` warns about it on stderr.
 - Duplicate container names (possible when importing several projects at once) are suffixed `-2`, `-3`, … since `apply` rejects duplicates.
 
 Omitted on purpose:
@@ -271,7 +271,7 @@ Omitted on purpose:
 | `env_file`, `depends_on`, `update_policy`, `disabled`, `data_path` | Not recoverable from a running container. |
 | `host` / `none` network modes, tmpfs mount options | Not expressible in the schema; reported as stderr warnings. |
 
-Output is deterministic — containers, networks, ports, volumes and tmpfs paths are sorted, so regenerating an unchanged host produces a byte-identical file. `env:` values are copied verbatim and routinely contain credentials, which is why `-O` creates the file with mode `0600`; review before committing.
+Output is deterministic: containers, networks, ports, volumes and tmpfs paths are sorted, so regenerating an unchanged host produces a byte-identical file. `env:` values are copied verbatim and routinely contain credentials, which is why `-O` creates the file with mode `0600`; review before committing.
 
 ### `restart` vs `repull` vs `apply` vs `update --apply`
 
@@ -294,7 +294,7 @@ For **semver-tagged images** (e.g. `nginx:1.27.0`, `redis:7.2-alpine`), the chec
 | `patch update`| Newer tags in same major (e.g. `1.27.1`, `1.28.0`)              | apply — rewrites stack.yaml tag, pulls, recreates |
 | `major update`| Only higher major versions found (e.g. `2.0.0`)                 | skip — manual tag change required (breaking changes likely) |
 | `patch+major` | Both same-major patches and higher-major versions exist          | apply patch; major shown in NOTE for awareness |
-| `manual`      | Container has `update_policy: manual` in YAML                    | skip — no registry call made |
+| `manual`      | Container has `update_policy: manual` in YAML                    | skip; reported with a `(manual)` suffix |
 
 For **floating tags** (e.g. `:latest`, `:master`, `:edge`), the check compares the locally cached digest against the registry:
 
@@ -303,7 +303,17 @@ For **floating tags** (e.g. `:latest`, `:master`, `:edge`), the check compares t
 | `digest changed`| Remote digest differs from local cache      | pull same tag, recreate |
 | `up-to-date`    | Digest matches                              | skip      |
 | `not pulled`    | Image not in local cache                    | skip      |
-| `manual`        | Container has `update_policy: manual`       | skip — no registry call made |
+| `manual`        | Container has `update_policy: manual`       | skip; reported with a `(manual)` suffix |
+
+**Containers that cannot be applied.** These keep their real update status and gain a suffix in the STATUS column, so an available update is never hidden and the reason it was not applied is never silent:
+
+| Held back by | STATUS suffix | Reported | Applied |
+| ------------ | ------------- | -------- | ------- |
+| `update_policy: manual` in YAML | `(manual)` | yes | no |
+| `containerctl disable <name>` (state file) | `(disabled)` | yes | no |
+| `disabled: true` in YAML | none; excluded from the report | no | no |
+
+`disabled: true` is excluded outright because the container is not meant to exist on the host at all, whereas the other two are containers you are deliberately holding at a version. When `--apply` finds nothing it can update, it names the containers that were held back and how to release them, rather than printing a generic message. `--follow` attaches only to a container that was actually recreated; if the named container was held back or failed to update, `update` says so and exits 0.
 
 Tag family matching uses the non-numeric suffix: `2.1.2-alpine` and `2.2.0-alpine` are in the same family (`-alpine`); `2.2.0` and `sha256-abc` are not. Non-semver candidates (SHA digests, `testing-*`, bare words) are always excluded.
 
@@ -1061,9 +1071,9 @@ Returns the file content as plain text. The response includes an `ETag` header s
 
 Reads the current file, recomputes its sha256, and compares with `If-Match`. If they match: writes the new content and returns 200. If they differ (another client wrote in the meantime): returns 409 Conflict with `{"error":"conflict"}`. The browser editor shows a red warning and preserves the user's unsaved edits so no work is lost.
 
-**Gating and accepted paths.** The endpoint is the browser editor's transport, so it is gated on `serve.edit.enabled` exactly like the `edit` command — both methods return `403` when editing is disabled (the default). When enabled, the path must be absolute, must resolve to an existing file, and must end in `.yaml` or `.yml` (`400` otherwise); writes never create new files.
+**Gating and accepted paths.** The endpoint is the browser editor's transport, so it is gated on `serve.edit.enabled` exactly like the `edit` command, so both methods return `403` when editing is disabled (the default). When enabled, the path must be absolute, must resolve to an existing file, and must end in `.yaml` or `.yml` (`400` otherwise); writes never create new files.
 
-The YAML restriction is deliberate but coarse: because `use` may point the session at any stack file, the target cannot be pinned to a single directory, so restricting the extension is what keeps shell profiles, `authorized_keys` and unit files out of reach of a hijacked session. Beyond that, operators still rely on filesystem permissions and the session token — a session with editing enabled can rewrite any stack file the server process can write, which is by design.
+The YAML restriction is deliberate but coarse: because `use` may point the session at any stack file, the target cannot be pinned to a single directory, so restricting the extension is what keeps shell profiles, `authorized_keys` and unit files out of reach of a hijacked session. Beyond that, operators still rely on filesystem permissions and the session token: a session with editing enabled can rewrite any stack file the server process can write, which is by design.
 
 ---
 

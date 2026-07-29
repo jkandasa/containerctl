@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -55,6 +56,7 @@ type imageUpdateStatus struct {
 	note     string
 	newerTag string // for --apply: the target tag (empty means re-pull same tag)
 	manual   bool   // update_policy: manual — show updates but never apply
+	disabled bool   // persistently disabled in the state file; same treatment
 }
 
 func runCheckUpdate(cmd *cobra.Command, args []string) error {
@@ -127,6 +129,12 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	}
 	wg.Wait()
 
+	// Persistently disabled containers (state file) block --apply just like
+	// update_policy: manual, so the STATUS column has to say so.
+	for i := range results {
+		results[i].disabled = st.IsDisabled(results[i].name)
+	}
+
 	nameW, imageW, statusW := len("NAME"), len("IMAGE"), len("STATUS")
 	for _, r := range results {
 		if len(r.name) > nameW {
@@ -152,7 +160,7 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 
 	var toApply []imageUpdateStatus
 	for _, r := range results {
-		if r.manual {
+		if r.manual || r.disabled {
 			continue
 		}
 		switch r.status {
@@ -162,14 +170,16 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(toApply) == 0 {
-		fmt.Println("\nNothing to apply. Major version updates require manual tag changes in stack.yaml.")
+		fmt.Println(nothingToApplyMessage(results))
 		return nil
 	}
 
+	var applied []string
 	fmt.Println()
 	for _, r := range toApply {
 		c := stack.ContainerByName(r.name)
-		if c == nil || st.IsDisabled(r.name) {
+		if c == nil {
+			fmt.Fprintf(os.Stderr, "  %-20s skipped: no longer declared in %s\n", r.name, flagFile)
 			continue
 		}
 
@@ -227,15 +237,56 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		fmt.Printf("  %-20s updated → running\n", r.name)
+		applied = append(applied, r.name)
 	}
 
-	if flagCheckUpdateFollow && len(toApply) > 0 {
+	// --follow requires exactly one name, so args[0] is the target. Only follow a
+	// container that was actually recreated; otherwise there may be nothing
+	// running to attach to.
+	if flagCheckUpdateFollow {
+		if !slices.Contains(applied, args[0]) {
+			fmt.Printf("\nNot following logs: %s was not updated.\n", args[0])
+			return nil
+		}
 		sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 		fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", args[0])
 		return followContainerLogs(sigCtx, runtime, stack, args[0])
 	}
 	return nil
+}
+
+// nothingToApplyMessage explains why nothing was updated. Without it, a
+// container held back by the state file or by update_policy looks like a silent
+// no-op even though the table just reported an available update.
+func nothingToApplyMessage(results []imageUpdateStatus) string {
+	var disabled, manual []string
+	for _, r := range results {
+		switch r.status {
+		case "digest changed", "patch update", "patch+major":
+		default:
+			continue
+		}
+		switch {
+		case r.disabled:
+			disabled = append(disabled, r.name)
+		case r.manual:
+			manual = append(manual, r.name)
+		}
+	}
+
+	var parts []string
+	if len(disabled) > 0 {
+		parts = append(parts, fmt.Sprintf("%s persistently disabled (run: containerctl enable %s)",
+			strings.Join(disabled, ", "), strings.Join(disabled, " ")))
+	}
+	if len(manual) > 0 {
+		parts = append(parts, fmt.Sprintf("%s set to update_policy: manual", strings.Join(manual, ", ")))
+	}
+	if len(parts) == 0 {
+		return "\nNothing to apply. Major version updates require manual tag changes in stack.yaml."
+	}
+	return "\nNothing to apply: " + strings.Join(parts, "; ") + "."
 }
 
 func checkImage(ctx context.Context, runtime rt.Runtime, c config.Container) imageUpdateStatus {
@@ -333,10 +384,16 @@ func isVersionTag(image string) bool {
 }
 
 // displayStatus returns the STATUS column value for a result.
-// Manual containers show their real update status with a "(manual)" suffix
-// so the policy is visible at a glance without hiding the update information.
+// Containers that cannot be applied show their real update status with a
+// "(manual)" or "(disabled)" suffix, so the reason is visible at a glance
+// without hiding the update information.
 func displayStatus(r imageUpdateStatus) string {
-	if r.manual {
+	switch {
+	case r.disabled && r.manual:
+		return r.status + " (disabled, manual)"
+	case r.disabled:
+		return r.status + " (disabled)"
+	case r.manual:
 		return r.status + " (manual)"
 	}
 	return r.status
