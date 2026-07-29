@@ -109,7 +109,7 @@ func buildImageContainerRefMap(ctrs []rt.ContainerInfo) map[string][]imageContai
 // stack may be nil when no stack file is available; in that case only running containers
 // are considered.
 func unusedImages(ctrs []rt.ContainerInfo, stack *config.Stack, imgs []rt.ImageInfo) []rt.ImageInfo {
-	inUseIDs   := make(map[string]bool)
+	inUseIDs := make(map[string]bool)
 	inUseNames := make(map[string]bool)
 	for _, c := range ctrs {
 		inUseNames[c.Image] = true

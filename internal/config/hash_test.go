@@ -95,8 +95,8 @@ func TestHash_ContainerctlLabelsAreExcluded(t *testing.T) {
 	c2 := &Container{
 		Image: "app:1",
 		Labels: map[string]string{
-			"my.label":           "value",
-			"containerctl.foo":   "should-be-ignored",
+			"my.label":             "value",
+			"containerctl.foo":     "should-be-ignored",
 			"containerctl.project": "also-ignored",
 		},
 	}

@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/jkandasa/containerctl/internal/config"
-	rt "github.com/jkandasa/containerctl/internal/runtime"
 	"github.com/jkandasa/containerctl/internal/registry"
+	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
 // fakeRuntime is a minimal implementation of rt.Runtime for testing the planner.
 // Only ListNetworks, ListContainers, and InspectContainer are implemented.
 type fakeRuntime struct {
-	networks []rt.NetworkInfo
+	networks   []rt.NetworkInfo
 	containers []rt.ContainerInfo
 	// inspect is used to simulate unmanaged containers for conflict detection
 	inspect map[string]*rt.ContainerInfo
@@ -36,31 +36,68 @@ func (f *fakeRuntime) InspectContainer(ctx context.Context, nameOrID string) (*r
 }
 
 // All other methods panic if called — they are not used by Build()
-func (f *fakeRuntime) Name() string { panic("not implemented") }
-func (f *fakeRuntime) Ping(ctx context.Context) error { panic("not implemented") }
-func (f *fakeRuntime) Close() error { panic("not implemented") }
+func (f *fakeRuntime) Name() string                                 { panic("not implemented") }
+func (f *fakeRuntime) Ping(ctx context.Context) error               { panic("not implemented") }
+func (f *fakeRuntime) Close() error                                 { panic("not implemented") }
 func (f *fakeRuntime) Pull(ctx context.Context, image string) error { panic("not implemented") }
-func (f *fakeRuntime) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (string, error) { panic("not implemented") }
+func (f *fakeRuntime) CreateContainer(ctx context.Context, spec rt.ContainerSpec) (string, error) {
+	panic("not implemented")
+}
 func (f *fakeRuntime) StartContainer(ctx context.Context, id string) error { panic("not implemented") }
-func (f *fakeRuntime) StopContainer(ctx context.Context, id string, timeout time.Duration) error { panic("not implemented") }
-func (f *fakeRuntime) RemoveContainer(ctx context.Context, id string, force bool) error { panic("not implemented") }
-func (f *fakeRuntime) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.ReadCloser, error) { panic("not implemented") }
-func (f *fakeRuntime) CreateNetwork(ctx context.Context, spec rt.NetworkSpec) (string, error) { panic("not implemented") }
-func (f *fakeRuntime) RemoveNetwork(ctx context.Context, nameOrID string) error { panic("not implemented") }
-func (f *fakeRuntime) NetworkExists(ctx context.Context, name string) (bool, error) { panic("not implemented") }
-func (f *fakeRuntime) ListImages(ctx context.Context) ([]rt.ImageInfo, error) { panic("not implemented") }
-func (f *fakeRuntime) RemoveImage(ctx context.Context, id string, force bool) error { panic("not implemented") }
-func (f *fakeRuntime) ListVolumes(ctx context.Context, f2 rt.Filters) ([]rt.VolumeInfo, error) { panic("not implemented") }
-func (f *fakeRuntime) RemoveVolume(ctx context.Context, name string, force bool) error { panic("not implemented") }
-func (f *fakeRuntime) VolumeSizes(ctx context.Context) (map[string]int64, error) { panic("not implemented") }
-func (f *fakeRuntime) LocalImageMeta(ctx context.Context, image string) (rt.ImageMeta, error) { panic("not implemented") }
-func (f *fakeRuntime) RemoteImageDigest(ctx context.Context, image string) (string, error) { panic("not implemented") }
+func (f *fakeRuntime) StopContainer(ctx context.Context, id string, timeout time.Duration) error {
+	panic("not implemented")
+}
+func (f *fakeRuntime) RemoveContainer(ctx context.Context, id string, force bool) error {
+	panic("not implemented")
+}
+func (f *fakeRuntime) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.ReadCloser, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) CreateNetwork(ctx context.Context, spec rt.NetworkSpec) (string, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) RemoveNetwork(ctx context.Context, nameOrID string) error {
+	panic("not implemented")
+}
+func (f *fakeRuntime) NetworkExists(ctx context.Context, name string) (bool, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) ListImages(ctx context.Context) ([]rt.ImageInfo, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) RemoveImage(ctx context.Context, id string, force bool) error {
+	panic("not implemented")
+}
+func (f *fakeRuntime) ListVolumes(ctx context.Context, f2 rt.Filters) ([]rt.VolumeInfo, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) RemoveVolume(ctx context.Context, name string, force bool) error {
+	panic("not implemented")
+}
+func (f *fakeRuntime) VolumeSizes(ctx context.Context) (map[string]int64, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) LocalImageMeta(ctx context.Context, image string) (rt.ImageMeta, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) InspectImageConfig(ctx context.Context, image string) (*rt.ImageConfig, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) RemoteImageDigest(ctx context.Context, image string) (string, error) {
+	panic("not implemented")
+}
 func (f *fakeRuntime) CheckTagUpdates(ctx context.Context, image string, max int) (*registry.TagUpdates, error) {
 	panic("not implemented")
 }
-func (f *fakeRuntime) ContainerStats(ctx context.Context, id string) (rt.ContainerUsage, error) { panic("not implemented") }
-func (f *fakeRuntime) EngineVersion(ctx context.Context) (rt.EngineInfo, error) { panic("not implemented") }
-func (f *fakeRuntime) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int, error) { panic("not implemented") }
+func (f *fakeRuntime) ContainerStats(ctx context.Context, id string) (rt.ContainerUsage, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) EngineVersion(ctx context.Context) (rt.EngineInfo, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int, error) {
+	panic("not implemented")
+}
 
 // helper to create a managed container with proper labels
 func managedContainer(name, image, hash string) rt.ContainerInfo {
@@ -234,7 +271,7 @@ func TestBuild_OrphanRemovalOnlyOnFullApply(t *testing.T) {
 
 func TestBuild_UnmanagedConflict(t *testing.T) {
 	stack := &config.Stack{
-		Project: "proj",
+		Project:    "proj",
 		Containers: []config.Container{{Name: "db", Image: "postgres:16"}},
 	}
 
@@ -290,7 +327,7 @@ func TestBuild_CycleDetection(t *testing.T) {
 
 func TestBuild_NetworkCreateAndOrphan(t *testing.T) {
 	stack := &config.Stack{
-		Project: "proj",
+		Project:  "proj",
 		Networks: []config.Network{{Name: "backend"}},
 	}
 
@@ -359,9 +396,15 @@ func TestBuild_TopoSortOrder(t *testing.T) {
 	// db and cache must come before app
 	dbIdx, cacheIdx, appIdx := -1, -1, -1
 	for i, n := range order {
-		if n == "db" { dbIdx = i }
-		if n == "cache" { cacheIdx = i }
-		if n == "app" { appIdx = i }
+		if n == "db" {
+			dbIdx = i
+		}
+		if n == "cache" {
+			cacheIdx = i
+		}
+		if n == "app" {
+			appIdx = i
+		}
 	}
 
 	if !(dbIdx < appIdx && cacheIdx < appIdx) {

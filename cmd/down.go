@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	rt "github.com/jkandasa/containerctl/internal/runtime"
 	"github.com/jkandasa/containerctl/internal/config"
+	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
 var downCmd = &cobra.Command{

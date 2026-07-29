@@ -11,11 +11,11 @@ import (
 type ActionType string
 
 const (
-	ActionCreate     ActionType = "create"
-	ActionRecreate   ActionType = "recreate"
-	ActionSkip       ActionType = "skip"
-	ActionRemove     ActionType = "remove"
-	ActionDisabled    ActionType = "disabled"    // disabled via state file; kept stopped
+	ActionCreate      ActionType = "create"
+	ActionRecreate    ActionType = "recreate"
+	ActionSkip        ActionType = "skip"
+	ActionRemove      ActionType = "remove"
+	ActionDisabled    ActionType = "disabled"     // disabled via state file; kept stopped
 	ActionDeclaredOff ActionType = "declared-off" // disabled: true in YAML, not on host
 )
 
@@ -37,10 +37,10 @@ type NetworkAction struct {
 }
 
 type Plan struct {
-	Project   string
-	Networks  []NetworkAction
+	Project    string
+	Networks   []NetworkAction
 	Containers []ContainerAction
-	Warnings  []string
+	Warnings   []string
 }
 
 func (p *Plan) HasChanges() bool {

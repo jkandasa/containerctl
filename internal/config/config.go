@@ -58,34 +58,34 @@ type Network struct {
 }
 
 type Container struct {
-	Name        string            `yaml:"name"`
-	Image       string            `yaml:"image"`
-	Disabled      bool              `yaml:"disabled,omitempty"`
-	UpdatePolicy  string            `yaml:"update_policy,omitempty"` // "" | "auto" | "manual"
-	Command     []string          `yaml:"command,omitempty"`
-	Entrypoint  []string          `yaml:"entrypoint,omitempty"`
-	Restart     string            `yaml:"restart,omitempty"`
-	Ports       []string          `yaml:"ports,omitempty"`
-	Volumes     []string          `yaml:"volumes,omitempty"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	EnvFile     []string          `yaml:"env_file,omitempty"`
+	Name           string            `yaml:"name"`
+	Image          string            `yaml:"image"`
+	Disabled       bool              `yaml:"disabled,omitempty"`
+	UpdatePolicy   string            `yaml:"update_policy,omitempty"` // "" | "auto" | "manual"
+	Command        []string          `yaml:"command,omitempty"`
+	Entrypoint     []string          `yaml:"entrypoint,omitempty"`
+	Restart        string            `yaml:"restart,omitempty"`
+	Ports          []string          `yaml:"ports,omitempty"`
+	Volumes        []string          `yaml:"volumes,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	EnvFile        []string          `yaml:"env_file,omitempty"`
 	Networks       []string          `yaml:"networks,omitempty"`
 	NetworkAliases []string          `yaml:"network_aliases,omitempty"`
-	Resources   Resources         `yaml:"resources,omitempty"`
-	Healthcheck *Healthcheck      `yaml:"healthcheck,omitempty"`
-	Labels      map[string]string `yaml:"labels,omitempty"`
-	User        string            `yaml:"user,omitempty"`
-	WorkingDir  string            `yaml:"working_dir,omitempty"`
-	Hostname    string            `yaml:"hostname,omitempty"`
-	DNS         []string          `yaml:"dns,omitempty"`
-	GroupAdd    []string          `yaml:"group_add,omitempty"`
-	CapAdd      []string          `yaml:"cap_add,omitempty"`
-	CapDrop     []string          `yaml:"cap_drop,omitempty"`
-	Privileged  bool              `yaml:"privileged,omitempty"`
-	SecurityOpt []string          `yaml:"security_opt,omitempty"`
-	ReadOnly    bool              `yaml:"read_only,omitempty"`
-	Tmpfs       []string          `yaml:"tmpfs,omitempty"`
-	DependsOn   []string          `yaml:"depends_on,omitempty"`
+	Resources      Resources         `yaml:"resources,omitempty"`
+	Healthcheck    *Healthcheck      `yaml:"healthcheck,omitempty"`
+	Labels         map[string]string `yaml:"labels,omitempty"`
+	User           string            `yaml:"user,omitempty"`
+	WorkingDir     string            `yaml:"working_dir,omitempty"`
+	Hostname       string            `yaml:"hostname,omitempty"`
+	DNS            []string          `yaml:"dns,omitempty"`
+	GroupAdd       []string          `yaml:"group_add,omitempty"`
+	CapAdd         []string          `yaml:"cap_add,omitempty"`
+	CapDrop        []string          `yaml:"cap_drop,omitempty"`
+	Privileged     bool              `yaml:"privileged,omitempty"`
+	SecurityOpt    []string          `yaml:"security_opt,omitempty"`
+	ReadOnly       bool              `yaml:"read_only,omitempty"`
+	Tmpfs          []string          `yaml:"tmpfs,omitempty"`
+	DependsOn      []string          `yaml:"depends_on,omitempty"`
 }
 
 type Resources struct {

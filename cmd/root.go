@@ -24,8 +24,8 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "containerctl",
-	Short: "Declarative container management from a single YAML file",
+	Use:          "containerctl",
+	Short:        "Declarative container management from a single YAML file",
 	SilenceUsage: true,
 }
 
@@ -106,4 +106,3 @@ func applyAuthFile(runtime rt.Runtime, path string) {
 		s.SetAuthFile(path)
 	}
 }
-
