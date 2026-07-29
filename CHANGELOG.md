@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.9.0] - 2026-07-29
+
 ### Added
 - `generate [name...]`: render a `stack.yaml` from containers that already exist on the host, for adopting containers created by `docker run` or `docker compose`. `-O FILE` writes to a file (mode `0600`, because `env:` values often carry credentials) instead of stdout; the host is never modified. Settings equal to the image defaults are omitted, `containerctl.*`/`com.docker.compose.*` labels are dropped, anonymous volumes are emitted as commented-out entries, and anything unrepresentable (foreign networks, `host`/`none` network modes, tmpfs options) is reported as a `WARN:` on stderr. Output is deterministic, and for containers containerctl already manages `generate` followed by `apply --dry-run` reports no changes.
 - Web terminal: `generate` added to the command allowlist. `generate -O FILE` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` target, since it writes to the server's disk.
