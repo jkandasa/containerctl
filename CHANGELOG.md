@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.10.0] - 2026-08-02
+
 ### Added
 - `-l` / `--label` on `apply`, `status`, `update`, `start`, `stop`, `restart`, and `down` to select containers by stack YAML `labels:` (kubectl-style). Supports `KEY` (exists), `!KEY` (absent), `KEY=VALUE`, `KEY!=VALUE`, comma-separated terms, and repeated flags (all AND). Documented in README and SPEC §5. Example: `containerctl apply -l release,environment=production`.
 
