@@ -23,9 +23,17 @@ func Load(path string) (*Stack, error) {
 	if err := validate(&s); err != nil {
 		return nil, err
 	}
+	// Resolve relative paths against the stack file's directory so
+	// `containerctl -f /path/to/stack.yaml` works regardless of CWD.
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	stackDir := filepath.Dir(absPath)
+
 	applyDefaults(&s)
-	resolveVolumePaths(&s)
-	if err := resolveEnvFiles(&s); err != nil {
+	resolveVolumePaths(&s, stackDir)
+	if err := resolveEnvFiles(&s, stackDir); err != nil {
 		return nil, err
 	}
 	return &s, nil
@@ -64,15 +72,21 @@ func applyDefaults(s *Stack) {
 }
 
 // resolveVolumePaths prepends data_path to any relative host path in volumes.
-// A path is considered relative when it does not start with '/'.
+// A path is considered relative when it is not absolute.
 // "SRC:DST" → "<data_path>/SRC:DST"
-func resolveVolumePaths(s *Stack) {
+//
+// Relative data_path values are resolved against stackDir (the directory
+// containing the stack YAML), not the process CWD.
+func resolveVolumePaths(s *Stack, stackDir string) {
 	if s.DataPath == "" {
 		return
 	}
-	base, err := filepath.Abs(s.DataPath)
-	if err != nil {
-		base = s.DataPath
+	base := s.DataPath
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(stackDir, base)
+	}
+	if abs, err := filepath.Abs(base); err == nil {
+		base = abs
 	}
 	s.DataPath = base
 	for i := range s.Containers {
@@ -90,7 +104,15 @@ func resolveVolumePaths(s *Stack) {
 	}
 }
 
-func resolveEnvFiles(s *Stack) error {
+// resolveEnvFiles reads each container's env_file entries, merges them into
+// Env (later files override earlier ones; inline env overrides files), then
+// clears EnvFile so the resolved map is the single source of truth for hashing
+// and container creation.
+//
+// Relative paths are resolved against data_path when set, otherwise against
+// stackDir (the directory containing the stack YAML). Absolute paths are left
+// unchanged.
+func resolveEnvFiles(s *Stack, stackDir string) error {
 	for i := range s.Containers {
 		c := &s.Containers[i]
 		if len(c.EnvFile) == 0 {
@@ -98,8 +120,15 @@ func resolveEnvFiles(s *Stack) error {
 		}
 		merged := make(map[string]string)
 		for _, path := range c.EnvFile {
-			if s.DataPath != "" && !filepath.IsAbs(path) {
-				path = filepath.Join(s.DataPath, path)
+			if path == "" {
+				return fmt.Errorf("containers[%s].env_file: empty path", c.Name)
+			}
+			if !filepath.IsAbs(path) {
+				if s.DataPath != "" {
+					path = filepath.Join(s.DataPath, path)
+				} else {
+					path = filepath.Join(stackDir, path)
+				}
 			}
 			pairs, err := parseEnvFile(path)
 			if err != nil {
@@ -119,6 +148,16 @@ func resolveEnvFiles(s *Stack) error {
 	return nil
 }
 
+// parseEnvFile reads a Docker-style env file (KEY=VALUE lines).
+//
+// Rules (aligned with docker run --env-file / Compose env_file):
+//   - Blank lines and lines starting with # are ignored
+//   - Leading whitespace on the line is ignored
+//   - KEY=VALUE sets KEY to VALUE (value may be empty)
+//   - KEY without '=' is filled from the host environment when set; otherwise
+//     the key is omitted (same as Docker)
+//   - Surrounding single or double quotes on the value are stripped
+//   - An optional "export " prefix on the line is accepted
 func parseEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -134,13 +173,44 @@ func parseEnvFile(path string) (map[string]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		idx := strings.IndexByte(line, '=')
-		if idx < 0 {
-			return nil, fmt.Errorf("%s line %d: expected KEY=VALUE", path, lineNo)
+		// Accept shell-style "export KEY=VALUE"
+		if rest, ok := strings.CutPrefix(line, "export "); ok {
+			line = strings.TrimSpace(rest)
+			if line == "" {
+				continue
+			}
 		}
-		k := strings.TrimSpace(line[:idx])
-		v := strings.TrimSpace(line[idx+1:])
+		k, v, hasValue := strings.Cut(line, "=")
+		k = strings.TrimSpace(k)
+		if k == "" {
+			return nil, fmt.Errorf("%s line %d: empty variable name", path, lineNo)
+		}
+		if strings.ContainsAny(k, " \t") {
+			return nil, fmt.Errorf("%s line %d: variable name %q contains whitespace", path, lineNo, k)
+		}
+		if !hasValue {
+			// KEY alone → pass through from host env when present
+			if host, ok := os.LookupEnv(k); ok {
+				out[k] = host
+			}
+			continue
+		}
+		// Trim surrounding whitespace, then strip matching quotes.
+		v = strings.TrimSpace(v)
+		v = unquoteEnvValue(v)
 		out[k] = v
 	}
 	return out, scanner.Err()
+}
+
+// unquoteEnvValue strips a single layer of matching single or double quotes.
+// Unmatched quotes are left as-is (the value is used literally).
+func unquoteEnvValue(v string) string {
+	if len(v) < 2 {
+		return v
+	}
+	if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
+		return v[1 : len(v)-1]
+	}
+	return v
 }

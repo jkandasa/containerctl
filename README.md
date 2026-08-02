@@ -387,7 +387,8 @@ Credentials are used by `pull`, `apply`, `repull`, `update`, and remote digest c
 project: string          # required. Namespace; final container name = <project>_<name>.
 runtime: docker|podman   # optional. Default: docker.
 socket: string           # optional. Override socket path. If set, runtime type is optional.
-data_path: string        # optional. Base dir for relative volume and env_file paths.
+data_path: string        # optional. Base dir for relative volume and env_file paths
+                         # (relative values are resolved against the stack file's directory).
 auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
 
 serve:                   # optional. Controls "containerctl serve" behaviour.
@@ -417,7 +418,7 @@ containers:
       - "named-volume:/container/path:ro"
     env:
       KEY: value
-    env_file:
+    env_file:                    # string or list; relative paths use data_path (or stack dir)
       - "secrets.env"
     networks: [backend]
     network_aliases:

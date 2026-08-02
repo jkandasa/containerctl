@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `env_file`: relative paths and relative `data_path` are resolved against the stack file's directory (not the process CWD), so `containerctl -f /path/to/stack.yaml` finds env files and volume sources correctly from any working directory.
+- `env_file`: a single string is now accepted in addition to a list (Compose-compatible), e.g. `env_file: secrets.env`.
+- `env_file` parsing: surrounding quotes on values are stripped, optional `export ` prefixes are accepted, and lines with a key but no `=` pass through the host environment when set (same as `docker run --env-file`).
+
 ---
 
 ## [v1.9.0] - 2026-07-29

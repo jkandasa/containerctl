@@ -1,5 +1,11 @@
 package config
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
 type Stack struct {
 	Project    string      `yaml:"project"`
 	Runtime    string      `yaml:"runtime,omitempty"`
@@ -57,6 +63,45 @@ type Network struct {
 	Labels map[string]string `yaml:"labels,omitempty"`
 }
 
+// StringList is a YAML field that accepts either a single string or a list of
+// strings (Compose-compatible). Example:
+//
+//	env_file: secrets.env
+//	env_file:
+//	  - secrets.env
+//	  - override.env
+type StringList []string
+
+func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var str string
+		if err := value.Decode(&str); err != nil {
+			return err
+		}
+		*s = StringList{str}
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*s = StringList(list)
+		return nil
+	case yaml.AliasNode:
+		if value.Alias == nil {
+			return fmt.Errorf("invalid YAML alias")
+		}
+		return s.UnmarshalYAML(value.Alias)
+	case 0:
+		// empty / omitted node
+		*s = nil
+		return nil
+	default:
+		return fmt.Errorf("expected string or list of strings, got %v", value.Kind)
+	}
+}
+
 type Container struct {
 	Name           string            `yaml:"name"`
 	Image          string            `yaml:"image"`
@@ -68,7 +113,7 @@ type Container struct {
 	Ports          []string          `yaml:"ports,omitempty"`
 	Volumes        []string          `yaml:"volumes,omitempty"`
 	Env            map[string]string `yaml:"env,omitempty"`
-	EnvFile        []string          `yaml:"env_file,omitempty"`
+	EnvFile        StringList        `yaml:"env_file,omitempty"`
 	Networks       []string          `yaml:"networks,omitempty"`
 	NetworkAliases []string          `yaml:"network_aliases,omitempty"`
 	Resources      Resources         `yaml:"resources,omitempty"`

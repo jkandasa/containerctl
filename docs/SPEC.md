@@ -113,7 +113,7 @@ Avoid `github.com/containers/podman/v5/pkg/bindings` in v1. Heavy transitive dep
 project: string        # required. Namespace for all managed objects.
 runtime: docker|podman # optional. Default: docker. Overridable via --runtime flag.
 data_path: string      # optional. Base directory for relative volume sources and env_file paths.
-                       # Relative data_path values are resolved to absolute using the CWD at load time.
+                       # Relative data_path values are resolved against the stack file's directory.
 networks:              # optional. Networks managed by containerctl.
   - name: string       # required.
     driver: string     # optional. Default: bridge.
@@ -156,8 +156,10 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
     - "myservice/config.yaml:/app/config.yaml"  # → <data_path>/myservice/config.yaml
   env:                 # optional. Inline env vars. Overrides env_file values.
     KEY: value
-  env_file: [string]   # optional. Paths to env files. Relative paths are resolved against data_path.
-                       # Later entries override earlier ones; inline env overrides files.
+  env_file: string|[string]  # optional. Paths to env files (string or list, Compose-compatible).
+                       # Relative paths: against data_path when set, otherwise against the stack
+                       # file's directory. Later entries override earlier ones; inline env
+                       # overrides files.
     - "myservice/secrets.env"  # → <data_path>/myservice/secrets.env
   networks: [string]   # optional. Names from top-level networks: section, or pre-existing networks.
   resources:           # optional. Resource limits.
@@ -185,7 +187,11 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
 
 ### data_path resolution
 
+Relative `data_path` values are resolved against the directory containing the stack YAML (not the process CWD), so `containerctl -f /path/to/stack.yaml` works from any working directory.
+
 When `data_path` is set, any relative `SRC` in `volumes` and any relative path in `env_file` are automatically prefixed with the resolved absolute value of `data_path`. Absolute paths are left unchanged.
+
+When `data_path` is not set, relative `env_file` paths are resolved against the stack file's directory.
 
 ```yaml
 data_path: ./data
@@ -193,10 +199,12 @@ data_path: ./data
 containers:
   - name: myservice
     volumes:
-      - "myservice/db:/var/lib/db"      # → /abs/path/to/data/myservice/db:/var/lib/db
+      - "myservice/db:/var/lib/db"      # → <stack_dir>/data/myservice/db:/var/lib/db
       - "/external/mount:/ext"           # unchanged — already absolute
     env_file:
-      - "myservice/secrets.env"          # → /abs/path/to/data/myservice/secrets.env
+      - "myservice/secrets.env"          # → <stack_dir>/data/myservice/secrets.env
+      # also valid as a single string:
+      # env_file: myservice/secrets.env
 ```
 
 ### Variable expansion
