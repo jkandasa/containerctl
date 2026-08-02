@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `-l` / `--label` on `apply`, `status`, `update`, `start`, `stop`, `restart`, and `down` to select containers by stack YAML `labels:` (kubectl-style). Supports `KEY` (exists), `!KEY` (absent), `KEY=VALUE`, `KEY!=VALUE`, comma-separated terms, and repeated flags (all AND). Documented in README and SPEC §5. Example: `containerctl apply -l release,environment=production`.
+
 ### Fixed
 - `env_file`: relative paths and relative `data_path` are resolved against the stack file's directory (not the process CWD), so `containerctl -f /path/to/stack.yaml` finds env files and volume sources correctly from any working directory.
 - `env_file`: a single string is now accepted in addition to a list (Compose-compatible), e.g. `env_file: secrets.env`.

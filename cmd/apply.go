@@ -23,6 +23,7 @@ var applyCmd = &cobra.Command{
 
 func init() {
 	applyCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Show what would change without making any changes (exits 3 if changes pending)")
+	addLabelFlag(applyCmd)
 	rootCmd.AddCommand(applyCmd)
 }
 
@@ -35,6 +36,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 	if flagProject != "" {
 		stack.Project = flagProject
+	}
+
+	selected, _, err := selectContainerNames(stack, args, flagLabels, false, false, false)
+	if err != nil {
+		return err
 	}
 
 	rt, err := runtimeFrom(stack)
@@ -56,7 +62,8 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	plan, err := reconcile.Build(ctx, stack, rt, args, st.DisabledSet())
+	// selected is nil for full apply; otherwise partial (names and/or -l).
+	plan, err := reconcile.Build(ctx, stack, rt, selected, st.DisabledSet())
 	if err != nil {
 		return err
 	}

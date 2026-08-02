@@ -37,6 +37,7 @@ func init() {
 	statusCmd.Flags().BoolVar(&flagStats, "stats", false, "show live CPU and memory usage (adds ~1-2s)")
 	statusCmd.Flags().BoolVarP(&flagWatch, "watch", "w", false, "refresh status repeatedly")
 	statusCmd.Flags().DurationVar(&flagWatchInterval, "interval", 2*time.Second, "refresh interval (used with --watch), e.g. 500ms, 5s, 1m")
+	addLabelFlag(statusCmd)
 }
 
 // liveData holds the pre-fetched results for a single live container.
@@ -154,14 +155,18 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 	}
 	wg.Wait()
 
-	filterSet := make(map[string]bool, len(args))
-	for _, a := range args {
+	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, false, true)
+	if err != nil {
+		return err
+	}
+	filterSet := make(map[string]bool, len(selected))
+	for _, a := range selected {
 		filterSet[a] = true
 	}
 
 	var entries []render.StatusEntry
 	for _, c := range stack.Containers {
-		if len(filterSet) > 0 && !filterSet[c.Name] {
+		if filtered && !filterSet[c.Name] {
 			continue
 		}
 		entry := render.StatusEntry{
@@ -257,7 +262,9 @@ func renderStatus(ctx context.Context, runtime rt.Runtime, stack *config.Stack, 
 		if declaredNames[name] {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[name] {
+		// Orphans have no stack labels; only show them when unfiltered or
+		// explicitly named (not via -l alone).
+		if filtered && !filterSet[name] {
 			continue
 		}
 		entry := render.StatusEntry{

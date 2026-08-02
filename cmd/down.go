@@ -18,6 +18,7 @@ var downCmd = &cobra.Command{
 }
 
 func init() {
+	addLabelFlag(downCmd)
 	rootCmd.AddCommand(downCmd)
 }
 
@@ -32,6 +33,15 @@ func runDown(cmd *cobra.Command, args []string) error {
 		stack.Project = flagProject
 	}
 
+	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, false, false)
+	if err != nil {
+		return err
+	}
+	nameSet := make(map[string]bool, len(selected))
+	for _, n := range selected {
+		nameSet[n] = true
+	}
+
 	runtime, err := runtimeFrom(stack)
 	if err != nil {
 		return err
@@ -40,11 +50,6 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 	if err := pingRuntime(ctx, runtime); err != nil {
 		return err
-	}
-
-	nameSet := make(map[string]bool, len(args))
-	for _, a := range args {
-		nameSet[a] = true
 	}
 
 	ctrs, err := runtime.ListContainers(ctx, rt.Filters{
@@ -59,7 +64,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 	for _, c := range ctrs {
 		lname := c.Labels[rt.LabelName]
-		if len(nameSet) > 0 && !nameSet[lname] {
+		if filtered && !nameSet[lname] {
 			continue
 		}
 		fmt.Printf("Stopping %s...\n", lname)

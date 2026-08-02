@@ -173,6 +173,7 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
     retries: 5
     start_period: 30s
   labels: map          # optional. User labels merged with containerctl-managed labels.
+                       # Also the source for -l/--label CLI selection (see §5 "Label selectors").
   user: string         # optional. UID[:GID]. Supports ${UID}:${GID} env expansion.
   working_dir: string  # optional.
   hostname: string     # optional.
@@ -236,15 +237,15 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 
 | Command                                                          | Purpose                                                                                                                                   | Exit codes                               |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `containerctl apply [name...] [--dry-run]`                       | Reconcile host to YAML. With names, only those containers are affected. Orphaned containers/networks and unrelated network creation are skipped; run without names for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
-| `containerctl status [name...]`                                  | Show all managed containers, their state, ports, created age, uptime, restarts, and sync status. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
-| `containerctl update [name...] [--apply] [--follow]`             | Query the registry for updates. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one container name, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |
+| `containerctl apply [name...] [-l selector] [--dry-run]`         | Reconcile host to YAML. With names and/or `-l`/`--label`, only matching containers are affected (kubectl-style selectors on stack `labels:`: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). Orphaned containers/networks and unrelated network creation are skipped on partial apply; run without selectors for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
+| `containerctl status [name...] [-l selector]`                    | Show managed containers, their state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
+| `containerctl update [name...] [-l selector] [--apply] [--follow]` | Query the registry for updates. Names and/or `-l` limit which containers are checked. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |
 | `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
-| `containerctl restart <name...> \| --all [--follow]`             | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
+| `containerctl restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
 | `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
-| `containerctl down [name...]`                                    | Stop and remove managed containers. With no args, the whole project.                                                                      | 0 ok, 1 error                            |
-| `containerctl stop <name...> \| --all`                           | Stop containers; they stay on disk and restart on next apply. Requires at least one name or `--all`.                                      | 0 ok, 1 error                            |
-| `containerctl start <name...> \| --all [--follow]`               | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
+| `containerctl down [name...] [-l selector]`                      | Stop and remove managed containers. With no names/labels, the whole project.                                                              | 0 ok, 1 error                            |
+| `containerctl stop <name...> \| --all \| -l selector`            | Stop containers; they stay on disk and restart on next apply. Requires at least one name, `-l`, or `--all`.                               | 0 ok, 1 error                            |
+| `containerctl start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
 | `containerctl enable <name...>`                                  | Removes from state file and reconciles the container (recreates if hash drifted, else starts).                                            | 0 ok, 1 error                            |
 | `containerctl logs <name> [--follow] [--tail N]`                 | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
@@ -254,6 +255,48 @@ All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime d
 | `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
 | `containerctl generate [name...] [-O FILE]`                      | Render a `stack.yaml` from containers that already exist on the host (import/migration aid). With no names, every container on the host is captured. Writes to stdout, or to `FILE` (created with mode `0600`) with `-O`. Never touches the host. | 0 ok, 1 error |
 | `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
+
+### Label selectors (`-l` / `--label`)
+
+kubectl-style selection against each container's stack YAML `labels:` map. Matching does **not** use live host labels except insofar as they were applied from the stack.
+
+#### Commands that support `-l`
+
+| Command | Selection behaviour |
+|---------|---------------------|
+| `apply` | Names and/or `-l` → partial apply (no orphan network/container cleanup) |
+| `status` | Filters the status list |
+| `update` | Limits registry check and optional `--apply`; `--follow` needs exactly one selected container |
+| `start` | Requires at least one of: name(s), `-l`, or `--all` |
+| `stop` | Requires at least one of: name(s), `-l`, or `--all` |
+| `restart` | Requires at least one of: name(s), `-l`, or `--all` |
+| `down` | No names/`-l` → entire project; otherwise only matching managed containers |
+
+**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`, `version`, `serve`.
+
+#### Selector syntax
+
+| Term | Semantics |
+|------|-----------|
+| `KEY` | Key must be present (any value) |
+| `!KEY` | Key must be absent |
+| `KEY=VALUE` | Key present and equal to `VALUE` |
+| `KEY!=VALUE` | Key absent, or present with a different value |
+
+Rules:
+
+- Comma-separated terms in one flag are **AND**.
+- Multiple `-l` / `--label` flags are **AND**.
+- Positional names combined with `-l` yield the **intersection**.
+- Zero matches → error (`no containers match the given name/label filters`).
+- User `labels` participate in the config hash; changing them triggers recreate on apply.
+
+```sh
+containerctl apply -l release,environment=production
+containerctl status -l app=frontend,environment!=development
+containerctl stop -l '!debug'
+containerctl restart web redis -l environment=production
+```
 
 ### `generate`: importing existing containers
 
@@ -818,7 +861,7 @@ containers:
 
 - **Healthcheck-gated rollout.** Wait for a recreated container to be healthy before proceeding to its dependents.
 - **Native Podman bindings.** Swap the Docker-SDK-against-Podman approach for `containers/podman/v5/pkg/bindings` if we need Podman-only features (pods, kube YAML import).
-- **Profiles.** `containerctl apply --profile prod` to filter containers by a `profiles:` field.
+- **Profiles.** `containerctl apply --profile prod` to filter containers by a dedicated `profiles:` field (orthogonal to `-l` label selectors in §5).
 - **Multi-file includes.** `include: [./db.yaml, ./web.yaml]`.
 - **Schema versioning.** Top-level `apiVersion:` field.
 - **TUI status view.** `containerctl status --watch` with a refreshing table.

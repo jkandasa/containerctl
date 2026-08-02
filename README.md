@@ -73,15 +73,15 @@ containerctl status           # see running state and sync status
 
 | Command | Description |
 |---|---|
-| `apply [name...] [--dry-run]` | Reconcile host to YAML. Names limit scope to those containers only. `--dry-run` shows the plan without making any changes (exits 3 if changes pending). |
-| `status [name...] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
-| `update [name...] [--apply] [--follow]` | Check registry for newer tags or digest changes. `--apply` upgrades patch versions and rewrites `stack.yaml`. Containers held back by `update_policy: manual` or a persistent `disable` are reported with a `(manual)`/`(disabled)` suffix and never applied. `--follow` streams logs after applying (requires `--apply` and exactly one container name, and attaches only if that container was actually updated). |
+| `apply [name...] [-l selector] [--dry-run]` | Reconcile host to YAML. Names and/or `-l`/`--label` limit scope (kubectl-style: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). `--dry-run` shows the plan without making any changes (exits 3 if changes pending). |
+| `status [name...] [-l selector] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
+| `update [name...] [-l selector] [--apply] [--follow]` | Check registry for newer tags or digest changes. Names and/or `-l` limit scope. `--apply` upgrades patch versions and rewrites `stack.yaml`. Containers held back by `update_policy: manual` or a persistent `disable` are reported with a `(manual)`/`(disabled)` suffix and never applied. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). |
 | `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |
-| `restart <name...> \| --all [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
+| `restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
-| `down [name...]` | Stop and remove managed containers. No names = whole project. |
-| `stop <name...> \| --all` | Stop containers; they stay on disk and restart on next apply. |
-| `start <name...> \| --all [--follow]` | Start stopped containers without reconciling. `--follow` streams logs after start (single container only). |
+| `down [name...] [-l selector]` | Stop and remove managed containers. No names/labels = whole project. |
+| `stop <name...> \| --all \| -l selector` | Stop containers; they stay on disk and restart on next apply. |
+| `start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. `--follow` streams logs after start (single container only). |
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...>` | Remove from state file and reconcile. |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
@@ -95,6 +95,76 @@ containerctl status           # see running state and sync status
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
 Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
+
+### Selecting containers with `-l` / `--label`
+
+Six commands accept kubectl-style label selectors against each container's stack YAML `labels:` map:
+
+| Command | Notes |
+|---------|--------|
+| `apply` | Partial apply when `-l` or names are set (no orphan cleanup) |
+| `status` | Filter the status table |
+| `update` | Limit registry check / `--apply`; `--follow` needs exactly one selected container |
+| `start` | Requires a name, `-l`, or `--all` |
+| `stop` | Requires a name, `-l`, or `--all` |
+| `restart` | Requires a name, `-l`, or `--all` |
+| `down` | No names/`-l` = whole project |
+
+**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`.
+
+#### Selector syntax
+
+| Selector | Meaning |
+|----------|---------|
+| `KEY` | Label **must exist** (any value) |
+| `!KEY` | Label **must not exist** |
+| `KEY=VALUE` | Present and equal to `VALUE` |
+| `KEY!=VALUE` | Absent, or present with a different value |
+
+- Commas separate terms (**AND**): `-l release,environment=production`
+- Multiple `-l` flags are also **AND**
+- Names + `-l` → **intersection**
+- Matching uses **stack YAML** `labels:` only (not live host labels alone)
+- Changing a label is part of the config hash and will recreate the container on next full/partial apply of that container
+
+```yaml
+# stack.yaml
+containers:
+  - name: web
+    image: myapp:1
+    labels:
+      app: frontend
+      environment: production
+      release: "v1"
+  - name: web-dev
+    image: myapp:1
+    labels:
+      app: frontend
+      environment: development
+      release: "v1"
+  - name: redis
+    image: redis:7
+    labels:
+      app: cache
+      environment: production
+```
+
+```sh
+# has "release" AND environment=production  → web
+containerctl apply -l release,environment=production
+
+# frontend, not development  → web
+containerctl status -l app=frontend,environment!=development
+
+# no "release" label  → redis (and any unlabeled containers)
+containerctl stop -l '!release'
+
+# names ∩ labels
+containerctl restart web web-dev redis -l environment=production
+# → web, redis
+```
+
+Quote `!` in shells that treat it specially: `-l '!debug'` or `-l '!release,environment=production'`.
 
 ### Web terminal (`serve`)
 
@@ -448,9 +518,13 @@ containers:
       - "apparmor=unconfined"
     read_only: bool
     tmpfs: [/tmp]
-    labels:
-      com.example.key: value
+    labels:                    # optional. Applied to the container; also used by -l/--label filters
+      app: frontend
+      environment: production
+      release: "v1"
 ```
+
+See [Selecting containers with `-l` / `--label`](#selecting-containers-with--l----label) for filter syntax.
 
 **Environment variable expansion** is applied to every string value at load time:
 

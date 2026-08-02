@@ -14,7 +14,7 @@ import (
 var flagStopAll bool
 
 var stopCmd = &cobra.Command{
-	Use:   "stop <name...> | --all",
+	Use:   "stop <name...> | --all | -l selector",
 	Short: "Stop containers; they stay on disk and restart on next apply",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runStop,
@@ -23,13 +23,10 @@ var stopCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(stopCmd)
 	stopCmd.Flags().BoolVar(&flagStopAll, "all", false, "stop all managed containers in the project")
+	addLabelFlag(stopCmd)
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	if !flagStopAll && len(args) == 0 {
-		return fmt.Errorf("specify at least one container name, or use --all")
-	}
-
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -40,6 +37,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 		stack.Project = flagProject
 	}
 
+	names, _, err := selectContainerNames(stack, args, flagLabels, true, flagStopAll, false)
+	if err != nil {
+		return err
+	}
+
 	runtime, err := runtimeFrom(stack)
 	if err != nil {
 		return err
@@ -48,22 +50,6 @@ func runStop(cmd *cobra.Command, args []string) error {
 
 	if err := pingRuntime(ctx, runtime); err != nil {
 		return err
-	}
-
-	names := args
-	if flagStopAll {
-		ctrs, err := runtime.ListContainers(ctx, rt.Filters{
-			Labels: map[string]string{
-				rt.LabelManaged: "true",
-				rt.LabelProject: stack.Project,
-			},
-		})
-		if err != nil {
-			return err
-		}
-		for _, c := range ctrs {
-			names = append(names, c.Labels[rt.LabelName])
-		}
 	}
 
 	for _, name := range names {

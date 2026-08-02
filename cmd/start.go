@@ -17,7 +17,7 @@ var (
 )
 
 var startCmd = &cobra.Command{
-	Use:   "start <name...> | --all",
+	Use:   "start <name...> | --all | -l selector",
 	Short: "Start stopped containers without reconciling",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runStart,
@@ -27,16 +27,10 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 	startCmd.Flags().BoolVar(&flagStartAll, "all", false, "start all managed containers in the project")
 	startCmd.Flags().BoolVar(&flagStartFollow, "follow", false, "follow log output after starting (single container only)")
+	addLabelFlag(startCmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	if !flagStartAll && len(args) == 0 {
-		return fmt.Errorf("specify at least one container name, or use --all")
-	}
-	if flagStartFollow && (flagStartAll || len(args) > 1) {
-		return fmt.Errorf("--follow requires exactly one container name")
-	}
-
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -45,6 +39,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	if flagProject != "" {
 		stack.Project = flagProject
+	}
+
+	names, _, err := selectContainerNames(stack, args, flagLabels, true, flagStartAll, false)
+	if err != nil {
+		return err
+	}
+	if flagStartFollow && len(names) != 1 {
+		return fmt.Errorf("--follow requires exactly one container name")
 	}
 
 	runtime, err := runtimeFrom(stack)
@@ -60,22 +62,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	st, err := state.Load(stack.Project)
 	if err != nil {
 		return err
-	}
-
-	names := args
-	if flagStartAll {
-		ctrs, err := runtime.ListContainers(ctx, rt.Filters{
-			Labels: map[string]string{
-				rt.LabelManaged: "true",
-				rt.LabelProject: stack.Project,
-			},
-		})
-		if err != nil {
-			return err
-		}
-		for _, c := range ctrs {
-			names = append(names, c.Labels[rt.LabelName])
-		}
 	}
 
 	for _, name := range names {

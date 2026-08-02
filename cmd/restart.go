@@ -18,7 +18,7 @@ var (
 )
 
 var restartCmd = &cobra.Command{
-	Use:   "restart <name...> | --all",
+	Use:   "restart <name...> | --all | -l selector",
 	Short: "Recreate containers from current config (stop, remove, create, start)",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runRestart,
@@ -28,16 +28,10 @@ func init() {
 	rootCmd.AddCommand(restartCmd)
 	restartCmd.Flags().BoolVar(&flagRestartAll, "all", false, "restart all managed containers in the project")
 	restartCmd.Flags().BoolVar(&flagRestartFollow, "follow", false, "follow log output after restarting (single container only)")
+	addLabelFlag(restartCmd)
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	if !flagRestartAll && len(args) == 0 {
-		return fmt.Errorf("specify at least one container name, or use --all")
-	}
-	if flagRestartFollow && (flagRestartAll || len(args) > 1) {
-		return fmt.Errorf("--follow requires exactly one container name")
-	}
-
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -48,6 +42,14 @@ func runRestart(cmd *cobra.Command, args []string) error {
 		stack.Project = flagProject
 	}
 
+	names, _, err := selectContainerNames(stack, args, flagLabels, true, flagRestartAll, false)
+	if err != nil {
+		return err
+	}
+	if flagRestartFollow && len(names) != 1 {
+		return fmt.Errorf("--follow requires exactly one container name")
+	}
+
 	runtime, err := runtimeFrom(stack)
 	if err != nil {
 		return err
@@ -56,22 +58,6 @@ func runRestart(cmd *cobra.Command, args []string) error {
 
 	if err := pingRuntime(ctx, runtime); err != nil {
 		return err
-	}
-
-	names := args
-	if flagRestartAll {
-		ctrs, err := runtime.ListContainers(ctx, rt.Filters{
-			Labels: map[string]string{
-				rt.LabelManaged: "true",
-				rt.LabelProject: stack.Project,
-			},
-		})
-		if err != nil {
-			return err
-		}
-		for _, c := range ctrs {
-			names = append(names, c.Labels[rt.LabelName])
-		}
 	}
 
 	for _, name := range names {

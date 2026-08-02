@@ -25,26 +25,30 @@ var (
 )
 
 var checkUpdateCmd = &cobra.Command{
-	Use:   "update [name...]",
+	Use:   "update [name...] [-l selector]",
 	Short: "Check registry for image updates",
-	Long: `Check all (or named) containers against their registry for newer images.
+	Long: `Check all (or selected) containers against their registry for newer images.
 
 Semver tagged images are compared by version; floating tags (latest, edge, …)
 are compared by digest. Manual-policy containers are reported but never applied.
+
+Use names and/or -l/--label to limit which containers are checked (same
+kubectl-style selectors as apply/status).
 
 Use --apply to automatically pull and recreate containers with patch or minor
 updates and digest changes. Major version bumps always require a manual tag
 change in stack.yaml.
 
-Use --follow with --apply and a single container name to stream logs immediately
-after the container is recreated.`,
+Use --follow with --apply when exactly one container is selected (by name
+and/or -l) to stream logs immediately after that container is recreated.`,
 	RunE: runCheckUpdate,
 }
 
 func init() {
 	rootCmd.AddCommand(checkUpdateCmd)
 	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateApply, "apply", false, "pull and recreate containers with patch/minor updates or digest changes")
-	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateFollow, "follow", false, "stream logs after applying (requires --apply and a single container name)")
+	checkUpdateCmd.Flags().BoolVar(&flagCheckUpdateFollow, "follow", false, "stream logs after applying (requires --apply and exactly one selected container)")
+	addLabelFlag(checkUpdateCmd)
 }
 
 type imageUpdateStatus struct {
@@ -63,9 +67,6 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	if flagCheckUpdateFollow && !flagCheckUpdateApply {
 		return fmt.Errorf("--follow requires --apply")
 	}
-	if flagCheckUpdateFollow && len(args) != 1 {
-		return fmt.Errorf("--follow requires exactly one container name")
-	}
 
 	ctx := context.Background()
 
@@ -75,6 +76,18 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if flagProject != "" {
 		stack.Project = flagProject
+	}
+
+	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, false, false)
+	if err != nil {
+		return err
+	}
+	filterSet := make(map[string]bool, len(selected))
+	for _, n := range selected {
+		filterSet[n] = true
+	}
+	if flagCheckUpdateFollow && (!filtered || len(selected) != 1) {
+		return fmt.Errorf("--follow requires exactly one selected container (name and/or -l)")
 	}
 
 	runtime, err := runtimeFrom(stack)
@@ -93,17 +106,12 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	filterSet := make(map[string]bool, len(args))
-	for _, a := range args {
-		filterSet[a] = true
-	}
-
 	var containers []config.Container
 	for _, c := range stack.Containers {
 		if c.Disabled {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[c.Name] {
+		if filtered && !filterSet[c.Name] {
 			continue
 		}
 		containers = append(containers, c)
@@ -240,18 +248,19 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 		applied = append(applied, r.name)
 	}
 
-	// --follow requires exactly one name, so args[0] is the target. Only follow a
-	// container that was actually recreated; otherwise there may be nothing
-	// running to attach to.
+	// --follow requires exactly one selected container (name and/or -l). Only
+	// follow a container that was actually recreated; otherwise there may be
+	// nothing running to attach to.
 	if flagCheckUpdateFollow {
-		if !slices.Contains(applied, args[0]) {
-			fmt.Printf("\nNot following logs: %s was not updated.\n", args[0])
+		target := selected[0]
+		if !slices.Contains(applied, target) {
+			fmt.Printf("\nNot following logs: %s was not updated.\n", target)
 			return nil
 		}
 		sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", args[0])
-		return followContainerLogs(sigCtx, runtime, stack, args[0])
+		fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", target)
+		return followContainerLogs(sigCtx, runtime, stack, target)
 	}
 	return nil
 }
