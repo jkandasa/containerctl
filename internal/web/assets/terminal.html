@@ -31,9 +31,9 @@
     // All known containerctl commands for tab completion.
     const ALL_CMDS = [
       'apply', 'clear', 'diff', 'disable', 'down',
-      'edit', 'enable', 'exec', 'help', 'images', 'logs', 'networks',
+      'edit', 'enable', 'exec', 'generate', 'help', 'images', 'logs', 'networks',
       'prune', 'pull', 'repull', 'restart', 'start', 'status', 'stop', 'update',
-      'use', 'version', 'volumes',
+      'use', 'volumes',
     ];
 
     // Per-command flags (command-specific only; global flags always appended).
@@ -46,6 +46,7 @@
       'edit':     [],
       'enable':   [],
       'exec':     [],
+      'generate': [],
       'help':     [],
       'images':   ['--unused'],
       'logs':     ['--follow', '--tail'],
@@ -59,7 +60,6 @@
       'stop':     ['--all'],
       'update':   ['--apply', '--follow'],
       'use':      [],
-      'version':  [],
       'volumes':  ['--unused', '--size'],
     };
 

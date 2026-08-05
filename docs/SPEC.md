@@ -244,6 +244,7 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | Command                                                          | Purpose                                                                                                                                   | Exit codes                               |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `containerctl stack [PATH] [--unset]`                            | Set or show the default stack file for later commands (oc-project style). No args: print current path. With PATH: validate file exists, store absolute path. `--unset`: clear saved default. | 0 ok, 1 error |
+| `containerctl --version`                                         | Print binary version, build date, Go version, and OS/arch. No `version` subcommand. | 0 |
 | `containerctl apply [name...] [-l selector] [--dry-run]`         | Reconcile host to YAML. With names and/or `-l`/`--label`, only matching containers are affected (kubectl-style selectors on stack `labels:`: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). Orphaned containers/networks and unrelated network creation are skipped on partial apply; run without selectors for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
 | `containerctl status [name...] [-l selector]`                    | Show managed containers, their state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
 | `containerctl update [name...] [-l selector] [--apply] [--follow]` | Query the registry for updates. Names and/or `-l` limit which containers are checked. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |
@@ -261,7 +262,6 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
 | `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
 | `containerctl generate [name...] [-O FILE]`                      | Render a `stack.yaml` from containers that already exist on the host (import/migration aid). With no names, every container on the host is captured. Writes to stdout, or to `FILE` (created with mode `0600`) with `-O`. Never touches the host. | 0 ok, 1 error |
-| `containerctl version`                                           | Print binary version, build date, Go version, OS/arch, and runtime reachability.                                                         | 0                                        |
 
 ### Label selectors (`-l` / `--label`)
 
@@ -279,7 +279,7 @@ kubectl-style selection against each container's stack YAML `labels:` map. Match
 | `restart` | Requires at least one of: name(s), `-l`, or `--all` |
 | `down` | No names/`-l` → entire project; otherwise only matching managed containers |
 
-**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`, `version`, `serve`.
+**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`.
 
 #### Selector syntax
 
@@ -1063,7 +1063,6 @@ Allowed commands:
 | `status [name...]` | subprocess |
 | `stop <name...> \| --all` | subprocess |
 | `use <path>` | built-in: updates session's active file |
-| `version` | subprocess |
 | `volumes [--unused] [--size]` | subprocess |
 
 Any other input: `{"type":"error","msg":"unknown command \"<input>\"; type help for available commands"}`.
@@ -1347,4 +1346,4 @@ GOFLAGS    := -trimpath
 - `make build` produces a static binary at `./containerctl`.
 - Cross-compile for `linux/amd64`, `linux/arm64`. macOS targets work for development against Docker Desktop.
 - Release artifacts: tarballs per platform plus `sha256sums.txt`. Single GitHub release per tag.
-- `containerctl version` prints: app version, build date, Go version (`debug.ReadBuildInfo`), OS/arch, and whether the configured runtime is reachable.
+- `containerctl --version` prints: app version, build date, Go version (`debug.ReadBuildInfo`), and OS/arch.

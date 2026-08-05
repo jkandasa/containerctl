@@ -73,7 +73,6 @@ var cmdHelp = map[string]string{
 	"stop":     "stop containers (apply will restart them)",
 	"update":   "check container images for updates  (flags: --apply  --follow with --apply, single container)",
 	"use":      "switch active stack file  e.g. use /path/to/other/stack.yaml",
-	"version":  "print binary version and runtime info",
 	"volumes":  "list local volumes  (flags: --unused  --size)",
 }
 

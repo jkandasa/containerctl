@@ -39,6 +39,10 @@ func Execute() {
 }
 
 func init() {
+	// Built-in --version on the root command (no version subcommand).
+	rootCmd.Version = Version
+	rootCmd.SetVersionTemplate(versionTemplate())
+
 	rootCmd.PersistentFlags().StringVarP(&flagFile, "file", "f", "", "YAML stack file (default: from \"stack\", else stack.yaml)")
 	rootCmd.PersistentFlags().StringVar(&flagRuntime, "runtime", "", "container runtime: docker|podman (overrides YAML)")
 	rootCmd.PersistentFlags().StringVar(&flagSocket, "socket", "", "override runtime socket path")
