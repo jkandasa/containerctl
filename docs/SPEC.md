@@ -233,10 +233,17 @@ The `$$` escape is useful when the container's entrypoint is a shell and should 
 
 ## 5. CLI surface
 
-All commands accept `-f, --file PATH` (default: `./stack.yaml`) and `--runtime docker|podman` (overrides YAML).
+All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides YAML).
+
+**Stack file resolution** (first match wins):
+
+1. Explicit `-f` / `--file` on the command line
+2. Path saved by `containerctl stack` (absolute path in `$XDG_CONFIG_HOME/containerctl/config.json`, or `~/.config/containerctl/config.json`)
+3. `./stack.yaml`
 
 | Command                                                          | Purpose                                                                                                                                   | Exit codes                               |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `containerctl stack [PATH] [--unset]`                            | Set or show the default stack file for later commands (oc-project style). No args: print current path. With PATH: validate file exists, store absolute path. `--unset`: clear saved default. | 0 ok, 1 error |
 | `containerctl apply [name...] [-l selector] [--dry-run]`         | Reconcile host to YAML. With names and/or `-l`/`--label`, only matching containers are affected (kubectl-style selectors on stack `labels:`: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). Orphaned containers/networks and unrelated network creation are skipped on partial apply; run without selectors for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
 | `containerctl status [name...] [-l selector]`                    | Show managed containers, their state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
 | `containerctl update [name...] [-l selector] [--apply] [--follow]` | Query the registry for updates. Names and/or `-l` limit which containers are checked. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |

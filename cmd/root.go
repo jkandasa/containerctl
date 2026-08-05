@@ -27,6 +27,9 @@ var rootCmd = &cobra.Command{
 	Use:          "containerctl",
 	Short:        "Declarative container management from a single YAML file",
 	SilenceUsage: true,
+	// Resolve the stack file once for every command:
+	// explicit -f/--file > path from `containerctl stack` > stack.yaml.
+	PersistentPreRunE: resolveStackFile,
 }
 
 func Execute() {
@@ -36,12 +39,24 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&flagFile, "file", "f", "stack.yaml", "YAML stack file")
+	rootCmd.PersistentFlags().StringVarP(&flagFile, "file", "f", "", "YAML stack file (default: from \"stack\", else stack.yaml)")
 	rootCmd.PersistentFlags().StringVar(&flagRuntime, "runtime", "", "container runtime: docker|podman (overrides YAML)")
 	rootCmd.PersistentFlags().StringVar(&flagSocket, "socket", "", "override runtime socket path")
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "console", "output format: console|json|yaml")
 	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "disable ANSI color output (also respects NO_COLOR env var)")
 	rootCmd.PersistentFlags().StringVar(&flagProject, "project", "", "override project name from YAML")
+}
+
+// resolveStackFile sets flagFile from -f, the saved `stack` path, or stack.yaml.
+func resolveStackFile(cmd *cobra.Command, _ []string) error {
+	// Persistent -f/--file is defined on the root; Changed is true when the user passed it.
+	changed := cmd.Root().PersistentFlags().Changed("file")
+	resolved, err := config.ResolveStackFile(flagFile, changed)
+	if err != nil {
+		return err
+	}
+	flagFile = resolved
+	return nil
 }
 
 func newRuntime(runtimeName, socket string) (rt.Runtime, error) {

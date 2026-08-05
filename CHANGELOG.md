@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `stack [file] [--unset]` — set or show the default stack file for subsequent commands (like `oc project`). No args prints the current path; a path is stored as an absolute path in `$XDG_CONFIG_HOME/containerctl/config.json`; `--unset` clears it. Explicit `-f`/`--file` still overrides the saved default for that invocation. Resolution order: `-f` → saved `stack` path → `./stack.yaml`.
+
 ---
 
 ## [v1.10.0] - 2026-08-02

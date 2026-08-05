@@ -91,10 +91,31 @@ containerctl status           # see running state and sync status
 | `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
 | `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused host-wide resources (not project-scoped). `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
 | `generate [name...] [-O FILE]` | Write a `stack.yaml` describing containers that already exist on the host. This is the import path from `docker run`/`docker compose`. No names = every container on the host. Output goes to stdout, or to `FILE` with `-O` (created mode `0600`, since env values often hold secrets). Nothing on the host is modified. See [Importing existing containers](#importing-existing-containers). |
+| `stack [file] [--unset]` | Set or show the default stack file for later commands (like `oc project`). No args prints the current path; a path saves it; `--unset` clears it. See [Default stack file (`stack`)](#default-stack-file-stack). |
 | `version` | Print version, Go runtime, and container engine details (version, API, OS/arch, kernel). Supports `-o json\|yaml`. |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
 
-Global flags: `-f/--file PATH` (default `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
+Global flags: `-f/--file PATH` (default: path from `stack`, else `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var).
+
+### Default stack file (`stack`)
+
+Like OpenShift's `oc project`, you can pin a default stack so you do not pass `-f` every time:
+
+```bash
+containerctl stack /path/to/stack1.yaml   # set default (stored as an absolute path)
+containerctl stack                        # print current path
+containerctl status                       # uses stack1.yaml
+containerctl apply -f other.yaml          # -f always wins for this invocation
+containerctl stack --unset                # back to ./stack.yaml
+```
+
+Priority for every command:
+
+1. Explicit `-f` / `--file` on the command line
+2. Path saved by `containerctl stack`
+3. `./stack.yaml`
+
+The saved path lives in `$XDG_CONFIG_HOME/containerctl/config.json` (or `~/.config/containerctl/config.json`). This is independent of the browser terminal's session-only `use` command under `serve`.
 
 ### Selecting containers with `-l` / `--label`
 
