@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.11.0] - 2026-08-05
+
 ### Added
 - `stack [file] [--unset]` — set or show the default stack file for subsequent commands (like `oc project`). No args prints the current path; a path is stored as an absolute path in `$XDG_CONFIG_HOME/containerctl/config.json`; `--unset` clears it. Explicit `-f`/`--file` still overrides the saved default for that invocation. Resolution order: `-f` → saved `stack` path → `./stack.yaml`.
 - `command` and `entrypoint` accept a Compose-style string as well as a list. A string is shell-split into argv (quotes and backslashes supported); it is not run by a shell. Example: `command: serve --port 8080` is equivalent to `command: ["serve", "--port", "8080"]`.
