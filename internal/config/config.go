@@ -102,13 +102,125 @@ func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
+// CommandList is a YAML field for command/entrypoint that accepts either a
+// Compose-style string (shell-split into argv) or a list of strings (exec form).
+//
+//	command: serve --port 8080 --log-level info
+//	command: ["serve", "--port", "8080"]
+//	entrypoint: /app/start.sh
+//	entrypoint: ["/app/start.sh"]
+//
+// String form splits on whitespace and honours single/double quotes; it does
+// not invoke a shell (no pipes, redirects, or variable expansion beyond what
+// containerctl already applies to the whole YAML at load time).
+type CommandList []string
+
+func (c *CommandList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var str string
+		if err := value.Decode(&str); err != nil {
+			return err
+		}
+		if str == "" {
+			*c = nil
+			return nil
+		}
+		parts, err := splitCommand(str)
+		if err != nil {
+			return err
+		}
+		*c = CommandList(parts)
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*c = CommandList(list)
+		return nil
+	case yaml.AliasNode:
+		if value.Alias == nil {
+			return fmt.Errorf("invalid YAML alias")
+		}
+		return c.UnmarshalYAML(value.Alias)
+	case 0:
+		*c = nil
+		return nil
+	default:
+		return fmt.Errorf("expected string or list of strings, got %v", value.Kind)
+	}
+}
+
+// splitCommand splits a Compose-style command string into argv, handling
+// single- and double-quoted segments. Unbalanced quotes return an error.
+func splitCommand(s string) ([]string, error) {
+	var (
+		parts   []string
+		current []rune
+		quote   rune // 0, '\'' or '"'
+		escape  bool
+	)
+	for _, r := range s {
+		if escape {
+			current = append(current, r)
+			escape = false
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			// Outside single quotes, backslash escapes the next character.
+			escape = true
+			continue
+		}
+		switch quote {
+		case '\'':
+			if r == '\'' {
+				quote = 0
+			} else {
+				current = append(current, r)
+			}
+		case '"':
+			if r == '"' {
+				quote = 0
+			} else {
+				current = append(current, r)
+			}
+		default:
+			switch {
+			case r == '\'' || r == '"':
+				quote = r
+			case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+				if len(current) > 0 {
+					parts = append(parts, string(current))
+					current = current[:0]
+				}
+			default:
+				current = append(current, r)
+			}
+		}
+	}
+	if escape {
+		return nil, fmt.Errorf("invalid command string: trailing backslash")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("invalid command string: unmatched %q", string(quote))
+	}
+	if len(current) > 0 {
+		parts = append(parts, string(current))
+	}
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	return parts, nil
+}
+
 type Container struct {
 	Name           string            `yaml:"name"`
 	Image          string            `yaml:"image"`
 	Disabled       bool              `yaml:"disabled,omitempty"`
 	UpdatePolicy   string            `yaml:"update_policy,omitempty"` // "" | "auto" | "manual"
-	Command        []string          `yaml:"command,omitempty"`
-	Entrypoint     []string          `yaml:"entrypoint,omitempty"`
+	Command        CommandList       `yaml:"command,omitempty"`
+	Entrypoint     CommandList       `yaml:"entrypoint,omitempty"`
 	Restart        string            `yaml:"restart,omitempty"`
 	Ports          []string          `yaml:"ports,omitempty"`
 	Volumes        []string          `yaml:"volumes,omitempty"`

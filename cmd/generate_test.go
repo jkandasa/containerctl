@@ -183,7 +183,7 @@ func TestContainerInfoToConfig(t *testing.T) {
 	if c.Command != nil {
 		t.Errorf("Command = %v, want nil (matches image default)", c.Command)
 	}
-	if !reflect.DeepEqual(c.Entrypoint, []string{"/entry.sh"}) {
+	if !reflect.DeepEqual([]string(c.Entrypoint), []string{"/entry.sh"}) {
 		t.Errorf("Entrypoint = %v, want [/entry.sh]", c.Entrypoint)
 	}
 	if !reflect.DeepEqual(c.Env, map[string]string{"TZ": "Asia/Kolkata"}) {
@@ -250,7 +250,7 @@ func TestContainerInfoToConfigNoImageConfig(t *testing.T) {
 	if c.Name != "standalone" {
 		t.Errorf("Name = %q, want standalone", c.Name)
 	}
-	if !reflect.DeepEqual(c.Command, []string{"sleep", "1d"}) {
+	if !reflect.DeepEqual([]string(c.Command), []string{"sleep", "1d"}) {
 		t.Errorf("Command = %v, want [sleep 1d] (no image config to compare against)", c.Command)
 	}
 	if c.Hostname != "" {

@@ -143,8 +143,11 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
   update_policy: string # optional. auto|manual. Default: auto. When "manual", update skips
                         # this container entirely — no registry query, no --apply action. Use for
                         # images you intentionally hold at a specific version.
-  command: [string]    # optional. Overrides image CMD.
-  entrypoint: [string] # optional. Overrides image ENTRYPOINT.
+  command: string|[string]  # optional. Overrides image CMD. String form is shell-split
+                            # into argv (Compose-style), not executed by a shell:
+                            #   command: serve --port 8080
+                            #   command: ["serve", "--port", "8080"]
+  entrypoint: string|[string] # optional. Overrides image ENTRYPOINT (same forms as command).
   restart: string      # optional. no|on-failure|always|unless-stopped. Default: unless-stopped.
   ports:               # optional. "HOST:CONTAINER" or "HOST:CONTAINER/proto" or "IP:HOST:CONTAINER".
     - "5432:5432"
