@@ -479,6 +479,8 @@ containers:
     image: string        # required. e.g. postgres:16
     disabled: bool       # optional. apply removes the container and skips creation.
     update_policy: auto|manual  # optional. manual = skip update entirely.
+    command: [string]    # optional. Overrides image CMD (args to the entrypoint).
+    entrypoint: [string] # optional. Overrides image ENTRYPOINT.
     restart: no|on-failure|always|unless-stopped
     ports:
       - "HOST:CONTAINER"
