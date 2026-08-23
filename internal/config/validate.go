@@ -67,7 +67,7 @@ func validate(s *Stack) error {
 				return fmt.Errorf("containers[%s].files[%d]: source is required", c.Name, j)
 			}
 			if !fileSeen[src] {
-				return fmt.Errorf("containers[%s].files[%d]: source %q is not declared in top-level files:", c.Name, j, src)
+				return fmt.Errorf("containers[%s].files[%d]: source %q is not declared in top-level files", c.Name, j, src)
 			}
 			if tgt == "" {
 				return fmt.Errorf("containers[%s].files[%d]: target is required", c.Name, j)

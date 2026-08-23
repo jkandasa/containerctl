@@ -133,7 +133,7 @@ func listTags(ctx context.Context, client *http.Client, reg, repo, token string)
 func tagSuffix(tag string) string {
 	s := strings.TrimPrefix(tag, "v")
 	idx := strings.IndexFunc(s, func(r rune) bool {
-		return !((r >= '0' && r <= '9') || r == '.')
+		return (r < '0' || r > '9') && r != '.'
 	})
 	if idx < 0 {
 		return ""
@@ -146,7 +146,7 @@ func tagSuffix(tag string) string {
 func parseSemver(tag string) []int {
 	s := strings.TrimPrefix(tag, "v")
 	if idx := strings.IndexFunc(s, func(r rune) bool {
-		return !((r >= '0' && r <= '9') || r == '.')
+		return (r < '0' || r > '9') && r != '.'
 	}); idx >= 0 {
 		s = s[:idx]
 	}

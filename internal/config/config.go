@@ -209,10 +209,10 @@ func splitCommand(s string) ([]string, error) {
 				current = append(current, r)
 			}
 		default:
-			switch {
-			case r == '\'' || r == '"':
+			switch r {
+			case '\'', '"':
 				quote = r
-			case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			case ' ', '\t', '\n', '\r':
 				if len(current) > 0 {
 					parts = append(parts, string(current))
 					current = current[:0]

@@ -686,8 +686,8 @@ func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int,
 
 	if opts.Interactive && opts.Stdin != nil {
 		go func() {
-			io.Copy(attach.Conn, opts.Stdin)
-			attach.CloseWrite()
+			_, _ = io.Copy(attach.Conn, opts.Stdin)
+			_ = attach.CloseWrite()
 		}()
 	}
 

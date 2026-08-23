@@ -71,7 +71,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("raw terminal: %w", err)
 		}
-		defer term.RestoreTerminal(inFd, savedState)
+		defer func() { _ = term.RestoreTerminal(inFd, savedState) }()
 	}
 
 	exitCode, err := runtime.Exec(ctx, info.ID, rt.ExecOptions{
@@ -88,7 +88,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	}
 	if exitCode != 0 {
 		if savedState != nil {
-			term.RestoreTerminal(inFd, savedState)
+			_ = term.RestoreTerminal(inFd, savedState)
 		}
 		os.Exit(exitCode)
 	}

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -657,11 +658,10 @@ func (s *Server) handleExecWS(w http.ResponseWriter, r *http.Request) {
 	// This is what allows vi/vim to open in full-screen mode.
 	rows, cols := uint16(24), uint16(80)
 	if rowStr, colStr := r.URL.Query().Get("rows"), r.URL.Query().Get("cols"); rowStr != "" && colStr != "" {
-		var r2, c2 uint16
-		fmt.Sscan(rowStr, &r2)
-		fmt.Sscan(colStr, &c2)
-		if r2 > 0 && c2 > 0 {
-			rows, cols = r2, c2
+		r64, rerr := strconv.ParseUint(rowStr, 10, 16)
+		c64, cerr := strconv.ParseUint(colStr, 10, 16)
+		if rerr == nil && cerr == nil && r64 > 0 && c64 > 0 {
+			rows, cols = uint16(r64), uint16(c64)
 		}
 	}
 

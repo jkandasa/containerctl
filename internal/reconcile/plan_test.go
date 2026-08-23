@@ -407,7 +407,7 @@ func TestBuild_TopoSortOrder(t *testing.T) {
 		}
 	}
 
-	if !(dbIdx < appIdx && cacheIdx < appIdx) {
+	if dbIdx >= appIdx || cacheIdx >= appIdx {
 		t.Errorf("expected db and cache before app, got order: %v", order)
 	}
 }
