@@ -34,3 +34,9 @@ git push origin v1.2.0             # re-triggers the workflow
 ## Devel (rolling) release
 
 Every push to `main` automatically updates the `devel` pre-release on GitHub with fresh binaries. No manual steps needed.
+
+---
+
+## CI
+
+Pull requests and pushes to `main` run `golangci-lint` (`.github/workflows/lint.yaml`). Locally: `make lint`.
