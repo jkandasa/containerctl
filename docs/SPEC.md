@@ -280,17 +280,17 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `containerctl stack [PATH] [--unset]`                            | Set or show the default stack file for later commands (oc-project style). No args: print current path. With PATH: validate file exists, store absolute path. `--unset`: clear saved default. | 0 ok, 1 error |
 | `containerctl --version`                                         | Print binary version, build date, Go version, and OS/arch. No `version` subcommand. | 0 |
-| `containerctl apply [name...] [-l selector] [--dry-run]`         | Reconcile host to YAML. With names and/or `-l`/`--label`, only matching containers are affected (kubectl-style selectors on stack `labels:`: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). Orphaned containers/networks and unrelated network creation are skipped on partial apply; run without selectors for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
+| `containerctl apply [name...] [-l selector] [--dry-run] [--follow]` | Reconcile host to YAML. With names and/or `-l`/`--label`, only matching containers are affected (kubectl-style selectors on stack `labels:`: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). Orphaned containers/networks and unrelated network creation are skipped on partial apply; run without selectors for a full cleanup. Streams per-container status as each action completes. `--dry-run` shows the plan without making any changes. `--follow` streams logs after apply (requires exactly one selected container, not `--dry-run`, and attaches only if that container was actually created or recreated). | 0 ok, 1 error, 2 partial failure (apply); 0 no changes, 3 changes pending, 1 error (--dry-run) |
 | `containerctl status [name...] [-l selector]`                    | Show managed containers, their state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--stats` adds live CPU/memory usage and a THROTTLE column (appears only when any container has been throttled). `-o json\|yaml` adds network IPs, mount paths, image digest/size, resource limits, timestamps in local timezone, and a `stats` object (present only with `--stats`) containing `cpu_percent`, `cpu_throttled_periods`, `cpu_throttled_time`, `cpu_throttled_time_ns`, `memory_used`, `memory_used_bytes`, and `memory_fail_count`. | 0 ok, 1 error                            |
 | `containerctl update [name...] [-l selector] [--apply] [--follow]` | Query the registry for updates. Names and/or `-l` limit which containers are checked. Semver tags: shows patch/minor and major updates separately. Floating tags: compares local vs remote digest. `--apply` pulls and recreates containers with patch/minor updates or digest changes. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). Skips containers with `disabled: true`, `update_policy: manual`, or a persistent `disable`. | 0 ok, 1 error |
-| `containerctl repull <name>`                                     | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`).                         | 0 ok, 1 error                            |
+| `containerctl repull <name> [--follow]`                          | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`). `--follow` streams logs after recreate. | 0 ok, 1 error                            |
 | `containerctl restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
 | `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
 | `containerctl down [name...] [-l selector]`                      | Stop and remove managed containers. With no names/labels, the whole project.                                                              | 0 ok, 1 error                            |
 | `containerctl stop <name...> \| --all \| -l selector`            | Stop containers; they stay on disk and restart on next apply. Requires at least one name, `-l`, or `--all`.                               | 0 ok, 1 error                            |
 | `containerctl start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
-| `containerctl enable <name...>`                                  | Removes from state file and reconciles the container (recreates if hash drifted, else starts).                                            | 0 ok, 1 error                            |
+| `containerctl enable <name...> [--follow]`                       | Removes from state file and reconciles the container (recreates if hash drifted, else starts). `--follow` streams logs after enable (single container only). | 0 ok, 1 error                            |
 | `containerctl logs <name> [--follow] [--tail N]`                 | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
 | `containerctl images [name...] [--unused]`                       | List local images. `--unused` shows only images not referenced by any running container or stack declaration. `-o json\|yaml` includes per-image container list. | 0 ok, 1 error |
 | `containerctl volumes [--unused] [--size]`                       | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (daemon-side scan). `-o json\|yaml` includes host mountpoint, size (when `--size` is given), and per-volume mount details. | 0 ok, 1 error |
@@ -306,7 +306,7 @@ kubectl-style selection against each container's stack YAML `labels:` map. Match
 
 | Command | Selection behaviour |
 |---------|---------------------|
-| `apply` | Names and/or `-l` → partial apply (no orphan network/container cleanup) |
+| `apply` | Names and/or `-l` → partial apply (no orphan network/container cleanup); `--follow` needs exactly one selected container |
 | `status` | Filters the status list |
 | `update` | Limits registry check and optional `--apply`; `--follow` needs exactly one selected container |
 | `start` | Requires at least one of: name(s), `-l`, or `--all` |
@@ -1078,13 +1078,13 @@ Allowed commands:
 
 | User input | Dispatch |
 |-----------|----------|
-| `apply [name...] [--dry-run]` | subprocess |
+| `apply [name...] [--dry-run] [--follow]` | subprocess |
 | `update [name...] [--apply] [--follow]` | subprocess |
 | `clear` | built-in: sends `{"type":"clear"}` |
 | `disable <name...>` | subprocess |
 | `down [name...]` | subprocess |
 | `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |
-| `enable <name...>` | subprocess |
+| `enable <name...> [--follow]` | subprocess |
 | `exec <name> [cmd...]` | see below |
 | `generate [name...] [-O FILE]` | subprocess; `-O` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` path |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
@@ -1093,7 +1093,7 @@ Allowed commands:
 | `networks [--unused]` | subprocess |
 | `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | subprocess |
 | `pull [name...]` | subprocess |
-| `repull <name>` | subprocess |
+| `repull <name> [--follow]` | subprocess |
 | `restart <name...> \| --all [--follow]` | subprocess |
 | `start <name...> \| --all [--follow]` | subprocess |
 | `status [name...]` | subprocess |

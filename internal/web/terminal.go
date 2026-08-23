@@ -52,12 +52,12 @@ type connState struct {
 
 // cmdHelp maps each allowed command to its one-line description shown by "help".
 var cmdHelp = map[string]string{
-	"apply":    "reconcile host to desired state defined in the stack file  (--dry-run to preview)",
+	"apply":    "reconcile host to desired state defined in the stack file  (--dry-run to preview, --follow to stream logs, single container)",
 	"clear":    "clear the terminal screen",
 	"disable":  "persistently disable a container (survives apply)",
 	"down":     "stop and remove managed containers",
 	"edit":     "open the active stack file in the browser editor (vim keybindings)",
-	"enable":   "re-enable a previously disabled container",
+	"enable":   "re-enable a previously disabled container  (--follow to stream logs, single container)",
 	"exec":     "run a non-interactive command in a container  e.g. exec <name> env",
 	"generate": "generate a stack.yaml from containers on the host  (-O FILE needs serve.edit.enabled)",
 	"help":     "show this help",
@@ -66,7 +66,7 @@ var cmdHelp = map[string]string{
 	"networks": "list networks  (flag: --unused)",
 	"prune":    "remove unused host-wide resources  (flags: --images --volumes --networks --all --dry-run --force)",
 	"pull":     "pull images without reconciling",
-	"repull":   "force-pull the image and recreate a container",
+	"repull":   "force-pull the image and recreate a container  (--follow to stream logs)",
 	"restart":  "recreate containers from current config  (--follow to stream logs, single container)",
 	"start":    "start stopped containers  (--follow to stream logs, single container)",
 	"status":   "show state and sync status of managed containers",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +14,10 @@ import (
 	"github.com/jkandasa/containerctl/internal/state"
 )
 
-var flagDryRun bool
+var (
+	flagDryRun      bool
+	flagApplyFollow bool
+)
 
 var applyCmd = &cobra.Command{
 	Use:   "apply [name...]",
@@ -23,11 +27,16 @@ var applyCmd = &cobra.Command{
 
 func init() {
 	applyCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Show what would change without making any changes (exits 3 if changes pending)")
+	applyCmd.Flags().BoolVar(&flagApplyFollow, "follow", false, "follow log output after apply (single container only)")
 	addLabelFlag(applyCmd)
 	rootCmd.AddCommand(applyCmd)
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
+	if flagApplyFollow && flagDryRun {
+		return fmt.Errorf("--follow cannot be used with --dry-run")
+	}
+
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -38,9 +47,12 @@ func runApply(cmd *cobra.Command, args []string) error {
 		stack.Project = flagProject
 	}
 
-	selected, _, err := selectContainerNames(stack, args, flagLabels, false, false, false)
+	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, false, false)
 	if err != nil {
 		return err
+	}
+	if flagApplyFollow && (!filtered || len(selected) != 1) {
+		return fmt.Errorf("--follow requires exactly one selected container (name and/or -l)")
 	}
 
 	rt, err := runtimeFrom(stack)
@@ -83,6 +95,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	if !plan.HasChanges() {
 		fmt.Println("Nothing to do.")
+		if flagApplyFollow {
+			return followLogsAfter(rt, stack, selected[0], false,
+				fmt.Sprintf("%s was not created or recreated.", selected[0]))
+		}
 		return nil
 	}
 
@@ -100,6 +116,15 @@ func runApply(cmd *cobra.Command, args []string) error {
 	res, err := reconcile.Apply(ctx, plan, rt, os.Stdout)
 	if err != nil {
 		return err
+	}
+
+	if flagApplyFollow {
+		target := selected[0]
+		started := slices.Contains(res.Created, target) || slices.Contains(res.Recreated, target)
+		if err := followLogsAfter(rt, stack, target, started,
+			fmt.Sprintf("%s was not created or recreated.", target)); err != nil {
+			return err
+		}
 	}
 
 	if res.HasFailures() {

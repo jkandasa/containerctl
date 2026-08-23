@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -253,14 +251,8 @@ func runCheckUpdate(cmd *cobra.Command, args []string) error {
 	// nothing running to attach to.
 	if flagCheckUpdateFollow {
 		target := selected[0]
-		if !slices.Contains(applied, target) {
-			fmt.Printf("\nNot following logs: %s was not updated.\n", target)
-			return nil
-		}
-		sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-		fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", target)
-		return followContainerLogs(sigCtx, runtime, stack, target)
+		return followLogsAfter(runtime, stack, target, slices.Contains(applied, target),
+			fmt.Sprintf("%s was not updated.", target))
 	}
 	return nil
 }

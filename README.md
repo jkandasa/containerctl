@@ -73,17 +73,17 @@ containerctl status           # see running state and sync status
 
 | Command | Description |
 |---|---|
-| `apply [name...] [-l selector] [--dry-run]` | Reconcile host to YAML. Names and/or `-l`/`--label` limit scope (kubectl-style: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). `--dry-run` shows the plan without making any changes (exits 3 if changes pending). |
+| `apply [name...] [-l selector] [--dry-run] [--follow]` | Reconcile host to YAML. Names and/or `-l`/`--label` limit scope (kubectl-style: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). `--dry-run` shows the plan without making any changes (exits 3 if changes pending). `--follow` streams logs after apply (requires exactly one selected container, not `--dry-run`, and attaches only if that container was actually created or recreated). |
 | `status [name...] [-l selector] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
 | `update [name...] [-l selector] [--apply] [--follow]` | Check registry for newer tags or digest changes. Names and/or `-l` limit scope. `--apply` upgrades patch versions and rewrites `stack.yaml`. Containers held back by `update_policy: manual` or a persistent `disable` are reported with a `(manual)`/`(disabled)` suffix and never applied. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). |
-| `repull <name>` | Force-pull the image and recreate a container, bypassing the config hash. |
+| `repull <name> [--follow]` | Force-pull the image and recreate a container, bypassing the config hash. `--follow` streams logs after recreate. |
 | `restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
 | `pull [name...]` | Pull images without reconciling. |
 | `down [name...] [-l selector]` | Stop and remove managed containers. No names/labels = whole project. |
 | `stop <name...> \| --all \| -l selector` | Stop containers; they stay on disk and restart on next apply. |
 | `start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. `--follow` streams logs after start (single container only). |
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
-| `enable <name...>` | Remove from state file and reconcile. |
+| `enable <name...> [--follow]` | Remove from state file and reconcile (recreate if hash drifted, otherwise start). `--follow` streams logs after enable (single container only). |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
 | `logs <name> [--follow] [--tail N]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. |
 | `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
@@ -122,7 +122,7 @@ Six commands accept kubectl-style label selectors against each container's stack
 
 | Command | Notes |
 |---------|--------|
-| `apply` | Partial apply when `-l` or names are set (no orphan cleanup) |
+| `apply` | Partial apply when `-l` or names are set (no orphan cleanup); `--follow` needs exactly one selected container |
 | `status` | Filter the status table |
 | `update` | Limit registry check / `--apply`; `--follow` needs exactly one selected container |
 | `start` | Requires a name, `-l`, or `--all` |

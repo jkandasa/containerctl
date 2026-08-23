@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `apply --follow`, `enable --follow`, and `repull --follow` stream logs after the container is created, recreated, or started. Requires exactly one selected container (`apply` also rejects `--dry-run`). Follows only if that container was actually started; otherwise prints `Not following logs: ...` and exits 0.
+
+### Fixed
+- `enable` now starts a stopped container when the config hash has not changed. Previously it only recreated on drift, so a container stopped by `disable` stayed stopped after `enable`.
+
 ---
 
 ## [v1.11.0] - 2026-08-05

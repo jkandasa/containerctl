@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 
 	"github.com/jkandasa/containerctl/internal/config"
 	"github.com/jkandasa/containerctl/internal/reconcile"
 	"github.com/jkandasa/containerctl/internal/render"
+	rt "github.com/jkandasa/containerctl/internal/runtime"
 	"github.com/jkandasa/containerctl/internal/state"
 )
+
+var flagEnableFollow bool
 
 var enableCmd = &cobra.Command{
 	Use:   "enable <name...>",
@@ -22,9 +26,14 @@ var enableCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(enableCmd)
+	enableCmd.Flags().BoolVar(&flagEnableFollow, "follow", false, "follow log output after enabling (single container only)")
 }
 
 func runEnable(cmd *cobra.Command, args []string) error {
+	if flagEnableFollow && len(args) != 1 {
+		return fmt.Errorf("--follow requires exactly one container name")
+	}
+
 	ctx := context.Background()
 
 	stack, err := config.Load(flagFile)
@@ -50,6 +59,7 @@ func runEnable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	var started bool
 	for _, name := range args {
 		c := stack.ContainerByName(name)
 		if c == nil {
@@ -80,16 +90,56 @@ func runEnable(cmd *cobra.Command, args []string) error {
 		render.Plan(os.Stdout, plan, colors())
 		fmt.Println()
 
+		startedThis := false
 		if plan.HasChanges() {
 			for _, e := range reconcile.PullImages(ctx, plan, runtime, 2) {
 				fmt.Fprintf(os.Stderr, "WARN: %v\n", e)
 			}
 			fmt.Println()
-			if _, err := reconcile.Apply(ctx, plan, runtime, os.Stdout); err != nil {
+			res, err := reconcile.Apply(ctx, plan, runtime, os.Stdout)
+			if err != nil {
 				return err
 			}
+			if slices.Contains(res.Created, name) || slices.Contains(res.Recreated, name) {
+				startedThis = true
+			}
 		}
+		// Hash match: planner skips. disable left the container stopped — start it.
+		if !startedThis {
+			running, err := startStoppedContainer(ctx, runtime, stack, name)
+			if err != nil {
+				return err
+			}
+			startedThis = running
+		}
+		started = startedThis
 		fmt.Printf("enabled %s\n", name)
 	}
+	if flagEnableFollow {
+		return followLogsAfter(runtime, stack, args[0], started,
+			fmt.Sprintf("%s was not created or started.", args[0]))
+	}
 	return nil
+}
+
+// startStoppedContainer starts name if it exists and is not running.
+// Returns true when the container is running afterwards.
+func startStoppedContainer(ctx context.Context, runtime rt.Runtime, stack *config.Stack, name string) (bool, error) {
+	fullName := config.ContainerFullName(stack.Project, name)
+	info, err := runtime.InspectContainer(ctx, fullName)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", name, err)
+	}
+	if info == nil {
+		return false, nil
+	}
+	if info.State == "running" {
+		return true, nil
+	}
+	fmt.Printf("  %-20s starting...\n", name)
+	if err := runtime.StartContainer(ctx, info.ID); err != nil {
+		return false, fmt.Errorf("start %s: %w", name, err)
+	}
+	fmt.Printf("  %-20s started   → running\n", name)
+	return true, nil
 }

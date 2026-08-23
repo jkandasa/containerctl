@@ -12,6 +12,8 @@ import (
 	"github.com/jkandasa/containerctl/internal/reconcile"
 )
 
+var flagRepullFollow bool
+
 var upgradeCmd = &cobra.Command{
 	Use:   "repull <name>",
 	Short: "Force-pull the image and recreate a container, bypassing the config hash",
@@ -21,6 +23,7 @@ var upgradeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(upgradeCmd)
+	upgradeCmd.Flags().BoolVar(&flagRepullFollow, "follow", false, "follow log output after recreating")
 }
 
 func runUpgrade(cmd *cobra.Command, args []string) error {
@@ -85,5 +88,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "upgraded %s\n", name)
+	if flagRepullFollow {
+		return followLogsAfter(rt, stack, name, true, "")
+	}
 	return nil
 }

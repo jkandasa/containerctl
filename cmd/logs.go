@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -51,6 +53,20 @@ func followContainerLogs(ctx context.Context, runtime rt.Runtime, stack *config.
 		return nil
 	}
 	return err
+}
+
+// followLogsAfter streams logs for name after a mutating command.
+// If started is false, it prints notStartedReason and returns nil so --follow
+// on a no-op is a clean exit rather than "container not found".
+func followLogsAfter(runtime rt.Runtime, stack *config.Stack, name string, started bool, notStartedReason string) error {
+	if !started {
+		fmt.Printf("\nNot following logs: %s\n", notStartedReason)
+		return nil
+	}
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	fmt.Printf("\nFollowing logs for %s (Ctrl-C to stop)...\n", name)
+	return followContainerLogs(sigCtx, runtime, stack, name)
 }
 
 func runLogs(cmd *cobra.Command, args []string) error {
