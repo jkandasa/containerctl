@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.12.0] - 2026-08-23
+
 ### Added
 - `apply --follow`, `enable --follow`, and `repull --follow` stream logs after the container is created, recreated, or started. Requires exactly one selected container (`apply` also rejects `--dry-run`). Follows only if that container was actually started; otherwise prints `Not following logs: ...` and exits 0.
 - GitHub Actions lint workflow (`.github/workflows/lint.yaml`) runs `golangci-lint` on pull requests and pushes to `main`. `.golangci.yml` applies the standard exclusion presets so idiomatic `defer Close()` / `fmt.Fprint` patterns are not flagged.
