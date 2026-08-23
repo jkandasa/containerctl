@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `stack [file] [--unset]` — set or show the default stack file for subsequent commands (like `oc project`). No args prints the current path; a path is stored as an absolute path in `$XDG_CONFIG_HOME/containerctl/config.json`; `--unset` clears it. Explicit `-f`/`--file` still overrides the saved default for that invocation. Resolution order: `-f` → saved `stack` path → `./stack.yaml`.
 - `command` and `entrypoint` accept a Compose-style string as well as a list. A string is shell-split into argv (quotes and backslashes supported); it is not run by a shell. Example: `command: serve --port 8080` is equivalent to `command: ["serve", "--port", "8080"]`.
+- `files:` — embed small file content in the stack and bind-mount it into containers. Top-level `files:` defines `name` + `content`; each container lists `source`/`target`/`mode`/`read_only`. Content is always written under `<data_path>/files/<name>` (YAML is source of truth on create/recreate). **`data_path` is required** when files are used; load fails if it is empty. Content participates in the config hash.
 
 ### Changed
 - Removed the `version` subcommand. Use `containerctl --version` instead (prints version, build date, Go version, OS/arch). Engine reachability details are no longer included.

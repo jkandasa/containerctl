@@ -189,6 +189,11 @@ func effectiveHostname(c *config.Container) string {
 }
 
 func containerSpec(project string, c *config.Container) (rt.ContainerSpec, error) {
+	// Write managed file content under data_path/files/ before binding.
+	if err := config.MaterializeFiles(c); err != nil {
+		return rt.ContainerSpec{}, err
+	}
+
 	labels := managedContainerLabels(project, c.Name, config.Hash(c))
 	for k, v := range c.Labels {
 		if !strings.HasPrefix(k, "containerctl.") {
@@ -204,6 +209,14 @@ func containerSpec(project string, c *config.Container) (rt.ContainerSpec, error
 	mounts, err := parseMounts(c.Volumes)
 	if err != nil {
 		return rt.ContainerSpec{}, fmt.Errorf("containers[%s]: %w", c.Name, err)
+	}
+	for _, fm := range c.Files {
+		mounts = append(mounts, rt.Mount{
+			Type:     "bind",
+			Source:   fm.HostPath,
+			Target:   fm.Target,
+			ReadOnly: fm.RO,
+		})
 	}
 
 	resources, err := parseResources(c.Resources)

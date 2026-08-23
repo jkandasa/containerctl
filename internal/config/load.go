@@ -33,6 +33,9 @@ func Load(path string) (*Stack, error) {
 
 	applyDefaults(&s)
 	resolveVolumePaths(&s, stackDir)
+	if err := resolveFiles(&s, stackDir); err != nil {
+		return nil, err
+	}
 	if err := resolveEnvFiles(&s, stackDir); err != nil {
 		return nil, err
 	}

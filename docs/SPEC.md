@@ -112,8 +112,12 @@ Avoid `github.com/containers/podman/v5/pkg/bindings` in v1. Heavy transitive dep
 ```yaml
 project: string        # required. Namespace for all managed objects.
 runtime: docker|podman # optional. Default: docker. Overridable via --runtime flag.
-data_path: string      # optional. Base directory for relative volume sources and env_file paths.
+data_path: string      # optional for volumes/env_file; required when files: are used.
+                       # Managed file content is always stored under <data_path>/files/.
                        # Relative data_path values are resolved against the stack file's directory.
+files:                 # optional. Named file bodies embedded in the stack (requires data_path).
+  - name: string       # required. Plain file name only (no path separators). Unique.
+    content: string    # required body (may be empty). Written to <data_path>/files/<name>.
 networks:              # optional. Networks managed by containerctl.
   - name: string       # required.
     driver: string     # optional. Default: bridge.
@@ -157,6 +161,11 @@ serve:                 # optional. Controls behaviour of "containerctl serve".
     - "/srv/pg:/var/lib/postgresql/data"
     - "pgdata:/var/lib/postgresql/data:rw"
     - "myservice/config.yaml:/app/config.yaml"  # → <data_path>/myservice/config.yaml
+  files:               # optional. Bind-mount top-level files: into the container (requires data_path).
+    - source: string   # required. Must match a top-level files[].name.
+      target: string   # required. Absolute path inside the container.
+      mode: string     # optional. Host file mode as octal (e.g. "0644"). Default: 0644.
+      read_only: bool  # optional. Default: true.
   env:                 # optional. Inline env vars. Overrides env_file values.
     KEY: value
   env_file: string|[string]  # optional. Paths to env files (string or list, Compose-compatible).
@@ -196,6 +205,29 @@ Relative `data_path` values are resolved against the directory containing the st
 When `data_path` is set, any relative `SRC` in `volumes` and any relative path in `env_file` are automatically prefixed with the resolved absolute value of `data_path`. Absolute paths are left unchanged.
 
 When `data_path` is not set, relative `env_file` paths are resolved against the stack file's directory.
+
+### Managed files (`files:`)
+
+Inline file content for bind mounts. Requires a non-empty `data_path`; load fails otherwise.
+
+**Storage:** each top-level `files[].name` is written to `<data_path>/files/<name>` when a container is created or recreated (apply, restart, repull, update --apply, enable). YAML content is the source of truth: the host file is overwritten on every materialization.
+
+**Mounts:** each container `files:` entry becomes a bind mount:
+
+```
+<source host path>  →  <target>  (:ro when read_only is true, the default)
+```
+
+Multiple containers may mount the same `source` (shared host file). `read_only` is per attachment.
+
+**Hash:** source, target, mode, effective read_only, and full content participate in the config hash. Editing content in YAML invalidates the hash and triggers recreate.
+
+**Validation:**
+
+- `data_path` required if any top-level `files:` or container `files:` is present
+- top-level names unique; no `/` or `\` in names
+- container `source` must reference a declared top-level name
+- `target` must be an absolute path inside the container
 
 ```yaml
 data_path: ./data
@@ -480,8 +512,9 @@ Normalize the container spec before hashing so semantically-equivalent YAML prod
 
 - Sort map keys (env, labels).
 - Sort slices that have no ordering semantics (cap_add, cap_drop, dns, networks).
-- Do **not** sort `command`, `entrypoint`, `ports`, `volumes`, `depends_on` — order matters.
+- Do **not** sort `command`, `entrypoint`, `ports`, `volumes`, `depends_on`, `files` — order matters.
 - Resolve `env_file` contents into the env map (so editing an env file invalidates the hash).
+- Include managed `files` attachments (source, target, mode, read_only, content).
 - Image: keep as-written, including tag. Do not resolve to digest. (Image-resolve-to-digest is a future enhancement; see §10.)
 - Exclude user-supplied `labels` keyed under `containerctl.*` (paranoia: never let user override our keys).
 - Exclude the `disabled` field from the hash. Toggling `disabled` should not cause a recreate when the user later re-enables — the planner branches on `disabled` _before_ consulting the hash.

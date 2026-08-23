@@ -12,9 +12,32 @@ type Stack struct {
 	Socket     string      `yaml:"socket,omitempty"`
 	DataPath   string      `yaml:"data_path,omitempty"`
 	AuthFile   string      `yaml:"auth_file,omitempty"`
+	Files      []FileDef   `yaml:"files,omitempty"`
 	Networks   []Network   `yaml:"networks,omitempty"`
 	Containers []Container `yaml:"containers"`
 	Serve      ServeConfig `yaml:"serve,omitempty"`
+}
+
+// FileDef is a named file body declared at the top level of the stack.
+// On apply, content is written under <data_path>/files/<name> and bind-mounted
+// into containers that reference it via Container.Files.
+type FileDef struct {
+	Name    string `yaml:"name"`
+	Content string `yaml:"content"`
+}
+
+// FileMount attaches a top-level FileDef to a path inside a container.
+// Source is the FileDef.Name. HostPath and Content are filled at load time.
+type FileMount struct {
+	Source   string `yaml:"source"`
+	Target   string `yaml:"target"`
+	Mode     string `yaml:"mode,omitempty"`      // octal, e.g. "0644"; default 0644
+	ReadOnly *bool  `yaml:"read_only,omitempty"` // default true
+
+	// Resolved at load (not written back to YAML).
+	Content  string `yaml:"-"`
+	HostPath string `yaml:"-"`
+	RO       bool   `yaml:"-"` // effective read-only after defaults
 }
 
 // ServeConfig controls behaviour of the "containerctl serve" web terminal.
@@ -224,6 +247,7 @@ type Container struct {
 	Restart        string            `yaml:"restart,omitempty"`
 	Ports          []string          `yaml:"ports,omitempty"`
 	Volumes        []string          `yaml:"volumes,omitempty"`
+	Files          []FileMount       `yaml:"files,omitempty"`
 	Env            map[string]string `yaml:"env,omitempty"`
 	EnvFile        StringList        `yaml:"env_file,omitempty"`
 	Networks       []string          `yaml:"networks,omitempty"`
@@ -266,6 +290,28 @@ func (s *Stack) ContainerByName(name string) *Container {
 		}
 	}
 	return nil
+}
+
+func (s *Stack) FileByName(name string) *FileDef {
+	for i := range s.Files {
+		if s.Files[i].Name == name {
+			return &s.Files[i]
+		}
+	}
+	return nil
+}
+
+// UsesFiles reports whether the stack declares or references any managed files.
+func (s *Stack) UsesFiles() bool {
+	if len(s.Files) > 0 {
+		return true
+	}
+	for i := range s.Containers {
+		if len(s.Containers[i].Files) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Stack) NetworkByName(name string) *Network {

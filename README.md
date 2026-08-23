@@ -477,9 +477,15 @@ Credentials are used by `pull`, `apply`, `repull`, `update`, and remote digest c
 project: string          # required. Namespace; final container name = <project>_<name>.
 runtime: docker|podman   # optional. Default: docker.
 socket: string           # optional. Override socket path. If set, runtime type is optional.
-data_path: string        # optional. Base dir for relative volume and env_file paths
-                         # (relative values are resolved against the stack file's directory).
+data_path: string        # optional for volumes/env_file; required when using files:
+                         # managed file content is always written under data_path/files/.
+                         # Relative values are resolved against the stack file's directory.
 auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
+
+files:                   # optional. Named file bodies embedded in the stack (requires data_path).
+  - name: app-conf       # plain name only (no path separators)
+    content: |           # written to <data_path>/files/<name> on apply/create
+      log_level: info
 
 serve:                   # optional. Controls "containerctl serve" behaviour.
   exec:
@@ -511,6 +517,11 @@ containers:
     volumes:
       - "/host/path:/container/path"
       - "named-volume:/container/path:ro"
+    files:                       # optional. Bind-mount managed files (from top-level files:)
+      - source: app-conf         # must match files[].name
+        target: /etc/app/config.yaml  # absolute path inside the container
+        mode: "0644"             # optional host file mode (octal); default 0644
+        read_only: true          # optional; default true
     env:
       KEY: value
     env_file:                    # string or list; relative paths use data_path (or stack dir)

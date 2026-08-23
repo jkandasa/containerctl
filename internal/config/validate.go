@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -11,6 +12,26 @@ func validate(s *Stack) error {
 	}
 	if len(s.Containers) == 0 {
 		return fmt.Errorf("at least one container is required")
+	}
+
+	// Managed files require data_path — they are always stored under it.
+	if s.UsesFiles() && strings.TrimSpace(s.DataPath) == "" {
+		return fmt.Errorf("data_path is required when files are declared (managed files are stored under data_path/files/)")
+	}
+
+	fileSeen := map[string]bool{}
+	for i, f := range s.Files {
+		name := strings.TrimSpace(f.Name)
+		if name == "" {
+			return fmt.Errorf("files[%d]: name is required", i)
+		}
+		if strings.ContainsAny(name, `/\`) || name == "." || name == ".." {
+			return fmt.Errorf("files[%d]: name %q must be a plain file name (no path separators)", i, name)
+		}
+		if fileSeen[name] {
+			return fmt.Errorf("files[%d]: duplicate name %q", i, name)
+		}
+		fileSeen[name] = true
 	}
 
 	seen := map[string]bool{}
@@ -37,6 +58,27 @@ func validate(s *Stack) error {
 			case "auto", "manual":
 			default:
 				return fmt.Errorf("containers[%s]: invalid update_policy %q (must be auto or manual)", c.Name, c.UpdatePolicy)
+			}
+		}
+		for j, fm := range c.Files {
+			src := strings.TrimSpace(fm.Source)
+			tgt := strings.TrimSpace(fm.Target)
+			if src == "" {
+				return fmt.Errorf("containers[%s].files[%d]: source is required", c.Name, j)
+			}
+			if !fileSeen[src] {
+				return fmt.Errorf("containers[%s].files[%d]: source %q is not declared in top-level files:", c.Name, j, src)
+			}
+			if tgt == "" {
+				return fmt.Errorf("containers[%s].files[%d]: target is required", c.Name, j)
+			}
+			if !filepath.IsAbs(tgt) {
+				return fmt.Errorf("containers[%s].files[%d]: target %q must be an absolute path inside the container", c.Name, j, tgt)
+			}
+			if fm.Mode != "" {
+				if _, err := parseFileMode(fm.Mode); err != nil {
+					return fmt.Errorf("containers[%s].files[%d]: %w", c.Name, j, err)
+				}
 			}
 		}
 	}

@@ -79,6 +79,7 @@ type hashable struct {
 	ReadOnly       bool             `json:"read_only,omitempty"`
 	Tmpfs          []string         `json:"tmpfs,omitempty"`
 	DependsOn      []string         `json:"depends_on,omitempty"`
+	Files          []hashFileMount  `json:"files,omitempty"`
 }
 
 type hashHealthcheck struct {
@@ -87,6 +88,16 @@ type hashHealthcheck struct {
 	Timeout  string   `json:"timeout,omitempty"`
 	Retries  int      `json:"retries,omitempty"`
 	Start    string   `json:"start_period,omitempty"`
+}
+
+// hashFileMount is the normalized form of a managed file attachment.
+// Content is included so edits in stack.yaml invalidate the hash.
+type hashFileMount struct {
+	Source   string `json:"source"`
+	Target   string `json:"target"`
+	Mode     string `json:"mode,omitempty"`
+	ReadOnly bool   `json:"read_only"`
+	Content  string `json:"content"`
 }
 
 func Hash(c *Container) string {
@@ -193,6 +204,20 @@ func normalize(c *Container) hashable {
 		copy(so, c.SecurityOpt)
 		sort.Strings(so)
 		h.SecurityOpt = so
+	}
+
+	if len(c.Files) > 0 {
+		// Preserve declaration order (target path matters); do not sort.
+		h.Files = make([]hashFileMount, len(c.Files))
+		for i, fm := range c.Files {
+			h.Files[i] = hashFileMount{
+				Source:   fm.Source,
+				Target:   fm.Target,
+				Mode:     fm.Mode,
+				ReadOnly: fm.RO,
+				Content:  fm.Content,
+			}
+		}
 	}
 
 	return h
