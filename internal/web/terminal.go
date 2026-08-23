@@ -63,7 +63,7 @@ var cmdHelp = map[string]string{
 	"generate": "generate a stack.yaml from containers on the host  (-O FILE needs serve.edit.enabled)",
 	"help":     "show this help",
 	"images":   "list local images  (flags: --unused  [name...])",
-	"logs":     "stream container logs  (flags: --follow  --tail N)",
+	"logs":     "stream container logs  (flags: --follow  --tail N  --clear  --info)",
 	"networks": "list networks  (flag: --unused)",
 	"prune":    "remove unused host-wide resources  (flags: --images --volumes --networks --all --dry-run --force)",
 	"pull":     "pull images without reconciling",

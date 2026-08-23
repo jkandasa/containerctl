@@ -291,7 +291,7 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | `containerctl start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
 | `containerctl enable <name...> [--follow]`                       | Removes from state file and reconciles the container (recreates if hash drifted, else starts). `--follow` streams logs after enable (single container only). | 0 ok, 1 error                            |
-| `containerctl logs <name> [--follow] [--tail N]`                 | Stream container logs. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`).                                       | 0 ok, 1 error                            |
+| `containerctl logs <name> [--follow] [--tail N] [--clear] [--info]` | Stream container logs. `--info` prints the engine log path, size, and driver. `--clear` truncates the engine log file in place without stopping the container (json-file / k8s-file). Fails for journald or if the process cannot write the log path. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`). | 0 ok, 1 error                            |
 | `containerctl images [name...] [--unused]`                       | List local images. `--unused` shows only images not referenced by any running container or stack declaration. `-o json\|yaml` includes per-image container list. | 0 ok, 1 error |
 | `containerctl volumes [--unused] [--size]`                       | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (daemon-side scan). `-o json\|yaml` includes host mountpoint, size (when `--size` is given), and per-volume mount details. | 0 ok, 1 error |
 | `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
@@ -635,6 +635,8 @@ type Runtime interface {
     InspectContainer(ctx context.Context, nameOrID string) (*ContainerInfo, error)
     ListContainers(ctx context.Context, filters Filters) ([]ContainerInfo, error)
     Logs(ctx context.Context, id string, opts LogOptions) (io.ReadCloser, error)
+    LogFileInfo(ctx context.Context, id string) (*LogFileInfo, error)
+    TruncateLogs(ctx context.Context, id string) error
     Exec(ctx context.Context, id string, opts ExecOptions) (int, error)
     ContainerStats(ctx context.Context, id string) (ContainerUsage, error)
 
@@ -1089,7 +1091,7 @@ Allowed commands:
 | `generate [name...] [-O FILE]` | subprocess; `-O` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` path |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
 | `images [name...] [--unused]` | subprocess |
-| `logs <name> [--follow] [--tail N]` | subprocess |
+| `logs <name> [--follow] [--tail N] [--clear] [--info]` | subprocess |
 | `networks [--unused]` | subprocess |
 | `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | subprocess |
 | `pull [name...]` | subprocess |

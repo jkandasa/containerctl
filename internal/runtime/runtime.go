@@ -28,6 +28,13 @@ type Runtime interface {
 	InspectContainer(ctx context.Context, nameOrID string) (*ContainerInfo, error)
 	ListContainers(ctx context.Context, filters Filters) ([]ContainerInfo, error)
 	Logs(ctx context.Context, id string, opts LogOptions) (io.ReadCloser, error)
+	// LogFileInfo returns the engine log driver, file path, and size.
+	// Path is empty when the driver has no file (e.g. journald).
+	LogFileInfo(ctx context.Context, id string) (*LogFileInfo, error)
+	// TruncateLogs empties the container's engine log file in place. The
+	// container is not stopped or recreated. Fails when the log driver has
+	// no file (e.g. journald) or the process cannot write that path.
+	TruncateLogs(ctx context.Context, id string) error
 
 	CreateNetwork(ctx context.Context, spec NetworkSpec) (id string, err error)
 	RemoveNetwork(ctx context.Context, nameOrID string) error
@@ -246,6 +253,15 @@ type LogOptions struct {
 	Tail       int
 	Timestamps bool
 	Since      time.Time
+}
+
+// LogFileInfo is the engine log file for a container.
+type LogFileInfo struct {
+	Driver  string
+	Path    string    // empty when the driver has no file
+	Size    int64     // bytes; valid when Path != "" and StatErr == nil
+	ModTime time.Time // valid when Path != "" and StatErr == nil
+	StatErr error     // set when Path is known but the file could not be stat'd
 }
 
 // ExecOptions configures a container exec session.

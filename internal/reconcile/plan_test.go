@@ -53,6 +53,10 @@ func (f *fakeRuntime) RemoveContainer(ctx context.Context, id string, force bool
 func (f *fakeRuntime) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.ReadCloser, error) {
 	panic("not implemented")
 }
+func (f *fakeRuntime) LogFileInfo(ctx context.Context, id string) (*rt.LogFileInfo, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) TruncateLogs(ctx context.Context, id string) error { panic("not implemented") }
 func (f *fakeRuntime) CreateNetwork(ctx context.Context, spec rt.NetworkSpec) (string, error) {
 	panic("not implemented")
 }

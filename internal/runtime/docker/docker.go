@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ type Client struct {
 }
 
 func (c *Client) SetAuthFile(path string) { c.authFile = path }
+
+var _ rt.Runtime = (*Client)(nil)
 
 func New(socketPath string) (*Client, error) {
 	opts := []dockerclient.Opt{dockerclient.WithAPIVersionNegotiation()}
@@ -625,6 +628,63 @@ func (c *Client) Logs(ctx context.Context, id string, opts rt.LogOptions) (io.Re
 		pw.CloseWithError(copyErr)
 	}()
 	return pr, nil
+}
+
+func (c *Client) logPathAndDriver(ctx context.Context, id string) (path, driver string, err error) {
+	info, err := c.cli.ContainerInspect(ctx, id)
+	if err != nil {
+		return "", "", err
+	}
+	driver = "json-file"
+	if info.HostConfig != nil && info.HostConfig.LogConfig.Type != "" {
+		driver = info.HostConfig.LogConfig.Type
+	}
+	return info.LogPath, driver, nil
+}
+
+func (c *Client) LogFileInfo(ctx context.Context, id string) (*rt.LogFileInfo, error) {
+	path, driver, err := c.logPathAndDriver(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := &rt.LogFileInfo{Driver: driver, Path: path}
+	if path == "" {
+		return out, nil
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		out.StatErr = err
+		return out, nil
+	}
+	out.Size = st.Size()
+	out.ModTime = st.ModTime()
+	return out, nil
+}
+
+func (c *Client) TruncateLogs(ctx context.Context, id string) error {
+	path, driver, err := c.logPathAndDriver(ctx, id)
+	if err != nil {
+		return err
+	}
+	if path == "" {
+		return fmt.Errorf("cannot clear logs: log driver %q has no file to truncate", driver)
+	}
+	if err := truncateFile(path); err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("cannot clear logs: permission denied writing %s (need write access to the engine log file)", path)
+		}
+		return fmt.Errorf("cannot clear logs: %w", err)
+	}
+	return nil
+}
+
+// truncateFile empties path in place so the engine keeps the same inode.
+func truncateFile(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int, error) {

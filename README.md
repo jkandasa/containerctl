@@ -85,7 +85,7 @@ containerctl status           # see running state and sync status
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...> [--follow]` | Remove from state file and reconcile (recreate if hash drifted, otherwise start). `--follow` streams logs after enable (single container only). |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
-| `logs <name> [--follow] [--tail N]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. |
+| `logs <name> [--follow] [--tail N] [--clear] [--info]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. `--info` prints the engine log path, size, and driver. `--clear` empties the current engine log file in place without stopping the container (file-backed drivers only; not with `--follow`/`--tail`). |
 | `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
 | `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
 | `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
