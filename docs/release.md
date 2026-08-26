@@ -35,6 +35,19 @@ git push origin v1.2.0             # re-triggers the workflow
 
 Every push to `main` automatically updates the `devel` pre-release on GitHub with fresh binaries. No manual steps needed.
 
+The devel binary is stamped `devel-<short-sha>` (see the workflow `VERSION=`). `containerctl upgrade --version=devel` compares that stamp to the commit recorded in the release body (`Built from commit <sha>`) and skips the download when they already match.
+
+## Self-upgrade
+
+```sh
+containerctl upgrade                 # latest stable, only if newer than this binary
+containerctl upgrade --check         # report only (exit 3 if an update is available)
+containerctl upgrade --version=v1.2.4
+containerctl upgrade --version=devel # rolling main build, only if the remote commit differs
+```
+
+Requires write access to the current executable. Restart `containerctl serve` after upgrading so it loads the new binary. Set `GITHUB_TOKEN` if you hit GitHub's unauthenticated API rate limit.
+
 ---
 
 ## CI

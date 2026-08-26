@@ -50,7 +50,8 @@ containerctl/
 │   ├── root.go
 │   ├── apply.go
 │   ├── status.go
-│   ├── upgrade.go              # repull command
+│   ├── upgrade.go              # self-upgrade from GitHub releases
+│   ├── repull.go               # force-pull image and recreate a container
 │   ├── restart.go          # stop → remove → create → start
 │   ├── check_update.go     # update command; registry check; --apply/--follow
 │   ├── down.go
@@ -78,6 +79,7 @@ containerctl/
 │   ├── registry/           # OCI registry queries (no daemon dependency)
 │   │   ├── digest.go       # RemoteDigest — Bearer-auth HEAD request for content digest
 │   │   └── tags.go         # CheckTagUpdates — semver-aware newer-tag discovery
+│   ├── upgrade/            # self-upgrade: GitHub releases, semver/devel compare, atomic replace
 │   ├── runtime/            # runtime abstraction
 │   │   ├── runtime.go      # Runtime interface + shared types
 │   │   ├── docker/         # docker SDK implementation
@@ -300,6 +302,7 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
 | `containerctl prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused local resources. At least one resource type flag (or `--all`) required. `--dry-run` previews without removing. `--force` skips the interactive confirmation (required when stdin is not a terminal). | 0 ok, 1 error |
 | `containerctl generate [name...] [-O FILE]`                      | Render a `stack.yaml` from containers that already exist on the host (import/migration aid). With no names, every container on the host is captured. Writes to stdout, or to `FILE` (created with mode `0600`) with `-O`. Never touches the host. | 0 ok, 1 error |
+| `containerctl upgrade [--version TAG] [--check]`                 | Replace the running binary with a GitHub release from `jkandasa/containerctl`. No `--version`: latest stable, or the rolling `devel` release when the current binary is already devel. `--version=vX.Y.Z` installs that tag only if it is greater than the current version. `--version=devel` installs the rolling main-branch build when the remote commit (release body `Built from commit <sha>`) differs from this binary's `devel-<sha>`. `--check` reports without replacing. Does not use a stack file. Not available in the web terminal. | 0 ok / already current, 3 update available (`--check`), 1 error |
 
 ### Label selectors (`-l` / `--label`)
 
@@ -317,7 +320,7 @@ kubectl-style selection against each container's stack YAML `labels:` map. Match
 | `restart` | Requires at least one of: name(s), `-l`, or `--all` |
 | `down` | No names/`-l` → entire project; otherwise only matching managed containers |
 
-**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`.
+**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`, `upgrade`.
 
 #### Selector syntax
 

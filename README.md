@@ -94,6 +94,7 @@ containerctl status           # see running state and sync status
 | `generate [name...] [-O FILE]` | Write a `stack.yaml` describing containers that already exist on the host. This is the import path from `docker run`/`docker compose`. No names = every container on the host. Output goes to stdout, or to `FILE` with `-O` (created mode `0600`, since env values often hold secrets). Nothing on the host is modified. See [Importing existing containers](#importing-existing-containers). |
 | `stack [file] [--unset]` | Set or show the default stack file for later commands (like `oc project`). No args prints the current path; a path saves it; `--unset` clears it. See [Default stack file (`stack`)](#default-stack-file-stack). |
 | `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
+| `upgrade [--version TAG] [--check]` | Replace this binary with a newer GitHub release. No `--version` installs the latest stable tag (or a newer `devel` build if this binary is already devel). `--version=v1.2.4` installs that tag only if it is greater than the current version. `--version=devel` installs the rolling main-branch build when the remote commit differs. `--check` reports without replacing (exit 3 if an update is available). CLI-only. |
 
 Global flags: `-f/--file PATH` (default: path from `stack`, else `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var), `--version` (print version, build date, Go version, OS/arch).
 
@@ -131,7 +132,7 @@ Six commands accept kubectl-style label selectors against each container's stack
 | `restart` | Requires a name, `-l`, or `--all` |
 | `down` | No names/`-l` = whole project |
 
-**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`.
+**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `upgrade`.
 
 #### Selector syntax
 
