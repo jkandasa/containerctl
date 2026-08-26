@@ -163,12 +163,7 @@ func parseRelease(data []byte) (*Release, error) {
 		CommitSHA:   commitFromRelease(raw.Body, raw.TargetCommitish),
 	}
 	for _, a := range raw.Assets {
-		rel.Assets = append(rel.Assets, Asset{
-			Name:               a.Name,
-			BrowserDownloadURL: a.BrowserDownloadURL,
-			Size:               a.Size,
-			Digest:             a.Digest,
-		})
+		rel.Assets = append(rel.Assets, Asset(a))
 	}
 	return rel, nil
 }
