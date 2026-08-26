@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v1.13.0] - 2026-08-26
+
 ### Fixed
 - `exec` into bash/sh used an 80-column TTY and overwrote the current line instead of wrapping. Stdin is fd 0, but size handling treated 0 as "unset", so the host window size was never applied. The host size is now set on create/attach, applied again after the process starts (with retries), and updated on `SIGWINCH`.
 - `cp` within the same container hung: the engine holds a filesystem lock for archive GET and PUT, so streaming the source into the destination on one container deadlocked. Same-container copies now drain the source archive (via a temp file) and close it before writing.
