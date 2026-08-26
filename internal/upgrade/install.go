@@ -68,9 +68,6 @@ func (in *Installer) Replace(ctx context.Context, dest string, asset *Asset) err
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", dest, err)
 	}
-	if err := writable(dest); err != nil {
-		return err
-	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
 	if err != nil {
@@ -88,10 +85,13 @@ func (in *Installer) Replace(ctx context.Context, dest string, asset *Asset) err
 		return fmt.Errorf("download: HTTP %d", resp.StatusCode)
 	}
 
+	// Write next to dest, then rename over it. Do not open dest for write:
+	// Linux returns ETXTBSY ("text file busy") for a running executable.
+	// Rename only updates the directory entry; the old inode stays mapped.
 	dir := filepath.Dir(dest)
 	tmp, err := os.CreateTemp(dir, ".containerctl-upgrade-*")
 	if err != nil {
-		return fmt.Errorf("temp file: %w", err)
+		return fmt.Errorf("cannot write to %s: %w", dir, err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
@@ -117,14 +117,6 @@ func (in *Installer) Replace(ctx context.Context, dest string, asset *Asset) err
 		return fmt.Errorf("chmod: %w", err)
 	}
 	return replaceFile(tmpName, dest)
-}
-
-func writable(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		return fmt.Errorf("cannot replace %s: %w", path, err)
-	}
-	return f.Close()
 }
 
 func replaceFile(src, dest string) error {

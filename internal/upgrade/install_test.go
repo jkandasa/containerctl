@@ -5,10 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -70,6 +73,65 @@ func TestInstallerReplace(t *testing.T) {
 	}
 	if info.Mode()&0o111 == 0 {
 		t.Fatal("replaced binary is not executable")
+	}
+}
+
+func TestInstallerReplaceWhileExecuting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows replace path is rename-aside, not ETXTBSY")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep not on PATH")
+	}
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "containerctl")
+	in, err := os.Open(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
+	_ = in.Close()
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Opening the running image for write is what used to fail with ETXTBSY.
+	cmd := exec.Command(dest, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	payload := []byte("new-binary-contents")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	inst := &Installer{HTTP: srv.Client()}
+	if err := inst.Replace(context.Background(), dest, &Asset{
+		BrowserDownloadURL: srv.URL,
+		Size:               int64(len(payload)),
+	}); err != nil {
+		t.Fatalf("replace running exe: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("dest = %q", got)
 	}
 }
 
