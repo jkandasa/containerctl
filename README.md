@@ -1,31 +1,28 @@
 # containerctl
 
+Declarative container management for one host. One YAML file is the desired state; `containerctl apply` makes the host match it.
 
-Declarative container management for a single host. Write a YAML file describing what should be running — `containerctl apply` makes it so.
+No daemon. No cluster. One static binary. Works with Docker, Podman, and any Docker-API socket (OrbStack, Colima, Rancher Desktop).
 
-No daemon. No cluster. One binary, one file.
+Compose is good at bringing a whole stack up. It is weak at drift, per-container work, and upgrades. containerctl is built for that gap, not as a Compose rewrite.
 
----
+- `status` and `apply --dry-run` show what is out of sync before anything changes.
+- Only a container whose config hash changed is recreated. Identical config is skipped.
+- `update` checks the registry; `--apply` can move patch/minor tags. You can `apply`, `restart`, or `update` one name.
+- Unmanaged containers are invisible. Only objects labeled `containerctl.managed=true` are touched.
 
-## Why
-
-Running containers on a single host usually means a pile of shell scripts — one per container, inconsistent flags, drift you can't see. `containerctl` replaces that with a single source of truth:
-
-- **Drift detection.** `apply --dry-run` and `status` show exactly what's out of sync before you touch anything.
-- **Hash-driven reconciliation.** Only recreates a container when its config actually changed.
-- **Update awareness.** `update` queries the registry for newer semver tags and digest changes. `--apply` upgrades patch versions automatically.
-- **Safe by default.** Never touches containers it doesn't own. Partial `apply` never removes unrelated containers.
-- **Docker and Podman.** Same tool, same YAML, same behaviour on either runtime.
-
----
+Full design: [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
 
 ```sh
-make build          # produces ./containerctl
+make build                          # ./containerctl
+containerctl upgrade                # latest stable GitHub release
+containerctl upgrade --version=devel
+containerctl upgrade --check        # report only (exit 3 if an update exists)
 ```
 
----
+`upgrade` replaces this binary. It installs a tagged release only if that tag is greater than the current version. `devel` is the rolling `main` build; it is installed only when the remote commit differs. Needs write access to the executable. Restart `serve` after upgrading. `GITHUB_TOKEN` raises the GitHub API rate limit.
 
 ## Quick start
 
@@ -46,8 +43,6 @@ containers:
     volumes:
       - "/srv/pg:/var/lib/postgresql/data"
     env:
-      POSTGRES_DB: app
-      POSTGRES_USER: app
       POSTGRES_PASSWORD: ${PG_PASSWORD}
     networks: [backend]
     resources:
@@ -57,571 +52,379 @@ containers:
     image: redis:7.2-alpine
     restart: unless-stopped
     networks: [backend]
-    resources:
-      memory: "256m"
 ```
 
 ```sh
-containerctl apply --dry-run  # preview what will change
-containerctl apply            # reconcile host to desired state
-containerctl status           # see running state and sync status
+containerctl apply --dry-run
+containerctl apply
+containerctl status
 ```
-
----
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `apply [name...] [-l selector] [--dry-run] [--follow]` | Reconcile host to YAML. Names and/or `-l`/`--label` limit scope (kubectl-style: `KEY`, `!KEY`, `KEY=VALUE`, `KEY!=VALUE`; comma-separated AND). `--dry-run` shows the plan without making any changes (exits 3 if changes pending). `--follow` streams logs after apply (requires exactly one selected container, not `--dry-run`, and attaches only if that container was actually created or recreated). |
-| `status [name...] [-l selector] [--stats] [--watch]` | Show image, state, ports, created age, uptime, restarts, and sync status. Filter with names and/or `-l`. `--watch` (`-w`) refreshes repeatedly (default every 2s; override with `--interval 500ms\|5s\|1m`). `--stats` also shows live CPU/memory usage and throttling data (adds ~1-2s). Use `-o json\|yaml` for rich output including image digest/size, resource limits, network IPs, mount paths, and timestamps (`created_at`, `started_at`, `last_restart`) in the host's local timezone. |
-| `update [name...] [-l selector] [--apply] [--follow]` | Check registry for newer tags or digest changes. Names and/or `-l` limit scope. `--apply` upgrades patch versions and rewrites `stack.yaml`. Containers held back by `update_policy: manual` or a persistent `disable` are reported with a `(manual)`/`(disabled)` suffix and never applied. `--follow` streams logs after applying (requires `--apply` and exactly one selected container, and attaches only if that container was actually updated). |
-| `repull <name> [--follow]` | Force-pull the image and recreate a container, bypassing the config hash. `--follow` streams logs after recreate. |
-| `restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) — no pull. `--follow` streams logs after restart (single container only). |
-| `pull [name...]` | Pull images without reconciling. |
-| `down [name...] [-l selector]` | Stop and remove managed containers. No names/labels = whole project. |
-| `stop <name...> \| --all \| -l selector` | Stop containers; they stay on disk and restart on next apply. |
-| `start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. `--follow` streams logs after start (single container only). |
-| `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
-| `enable <name...> [--follow]` | Remove from state file and reconcile (recreate if hash drifted, otherwise start). `--follow` streams logs after enable (single container only). |
-| `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
-| `cp NAME:SRC DEST \| SRC NAME:DEST \| SRC_NAME:SRC DEST_NAME:DEST [-a] [-L] [-q] [--overwrite]` | Copy files or directories between a managed container and the host, or between two managed containers. Use the logical name from the stack. Works on running or stopped containers. `-` streams a tar archive to stdout or from stdin. See [cp](#cp). |
-| `logs <name> [--follow] [--tail N] [--clear] [--info]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. `--info` prints the engine log path, size, and driver. `--clear` empties the current engine log file in place without stopping the container (file-backed drivers only; not with `--follow`/`--tail`). |
-| `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
-| `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
-| `networks [--unused]` | List user-defined networks. `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. |
-| `prune [--images] [--volumes] [--networks] [--all] [--dry-run] [--force]` | Remove unused host-wide resources (not project-scoped). `--all` is equivalent to `--images --volumes --networks`. `--dry-run` previews without removing. `--force` skips the confirmation prompt. |
-| `generate [name...] [-O FILE]` | Write a `stack.yaml` describing containers that already exist on the host. This is the import path from `docker run`/`docker compose`. No names = every container on the host. Output goes to stdout, or to `FILE` with `-O` (created mode `0600`, since env values often hold secrets). Nothing on the host is modified. See [Importing existing containers](#importing-existing-containers). |
-| `stack [file] [--unset]` | Set or show the default stack file for later commands (like `oc project`). No args prints the current path; a path saves it; `--unset` clears it. See [Default stack file (`stack`)](#default-stack-file-stack). |
-| `serve` | Start an HTTP/HTTPS server exposing a browser-based management terminal. See [Web terminal](#web-terminal-serve) below. |
-| `upgrade [--version TAG] [--check]` | Replace this binary with a newer GitHub release. No `--version` installs the latest stable tag (or a newer `devel` build if this binary is already devel). `--version=v1.2.4` installs that tag only if it is greater than the current version. `--version=devel` installs the rolling main-branch build when the remote commit differs. `--check` reports without replacing (exit 3 if an update is available). CLI-only. |
+| `apply [name...]` | Reconcile the host to YAML. `--dry-run` prints the plan (exit 3 if changes). `--follow` streams logs after a single container is created or recreated. |
+| `status [name...]` | Image, state, ports, age, uptime, restarts, sync. `-w/--watch` (default 2s, `--interval`). `--stats` adds live CPU/memory. |
+| `update [name...]` | Check the registry for newer tags or digest changes. `--apply` pulls patch/minor and digest updates and rewrites `stack.yaml`. Major bumps are listed only. `--follow` needs `--apply` and one container. |
+| `repull <name>` | Force-pull the image and recreate, ignoring the config hash. |
+| `restart <name...>` | Recreate from current config. No pull. Needs names, `-l`, or `--all`. |
+| `pull [name...]` | Pull images. No reconcile. |
+| `down [name...]` | Stop and remove. No names or `-l` means the whole project. |
+| `stop <name...>` | Stop. Stays on disk; next `apply` starts it. Needs names, `-l`, or `--all`. |
+| `start <name...>` | Start a stopped container. Needs names, `-l`, or `--all`. |
+| `disable <name...>` | Persistent off (state file). Survives reboot and `apply`. |
+| `enable <name...>` | Clear disable and reconcile (recreate if hash drifted, else start). |
+| `exec <name> [cmd...]` | Run a command. Default `/bin/sh`. TTY and resize when stdin is a terminal. |
+| `cp SRC DEST` | Copy host ↔ container or container ↔ container. See [cp](#cp). |
+| `logs <name>` | Stream logs. `--follow`, `--tail N` (`-1` all, `0` none). `--info` prints driver/path/size. `--clear` empties a file-backed log in place (not with `--follow` or `--tail`). |
+| `images [name...]` | Local images. `--unused` drops anything referenced by a container or the stack. |
+| `volumes` | Local volumes. `--unused`, `--size` (daemon disk scan). |
+| `networks` | User-defined networks. `--unused`. |
+| `prune` | Remove unused host resources. Needs `--images`, `--volumes`, `--networks`, or `--all`. `--dry-run`, `--force`. |
+| `generate [name...]` | Write a `stack.yaml` from existing host containers. `-O FILE` (mode `0600`). Host is not changed. |
+| `stack [file]` | Set or print the default stack file. `--unset` clears it. |
+| `serve` | Browser terminal. See [Web terminal](#web-terminal). |
+| `upgrade` | Replace this binary from GitHub. `--version TAG`, `--check`. CLI only. |
 
-Global flags: `-f/--file PATH` (default: path from `stack`, else `./stack.yaml`), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also respects `NO_COLOR` env var), `--version` (print version, build date, Go version, OS/arch).
+`apply`, `status`, `update`, `start`, `stop`, `restart`, and `down` accept `-l/--label`. `--follow` on `apply`, `update`, `repull`, `restart`, `start`, and `enable` needs exactly one selected container.
 
-### Default stack file (`stack`)
+**Global flags:** `-f/--file` (see [Stack file](#stack-file)), `--runtime docker|podman`, `--socket PATH`, `-o console|json|yaml`, `--no-color` (also `NO_COLOR`), `--version`, `--project`.
 
-Like OpenShift's `oc project`, you can pin a default stack so you do not pass `-f` every time:
+## Stack file
 
-```bash
-containerctl stack /path/to/stack1.yaml   # set default (stored as an absolute path)
-containerctl stack                        # print current path
-containerctl status                       # uses stack1.yaml
-containerctl apply -f other.yaml          # -f always wins for this invocation
-containerctl stack --unset                # back to ./stack.yaml
-```
+Resolution, first match wins:
 
-Priority for every command:
-
-1. Explicit `-f` / `--file` on the command line
-2. Path saved by `containerctl stack`
+1. `-f` / `--file`
+2. Path saved by `containerctl stack` (`$XDG_CONFIG_HOME/containerctl/config.json`, else `~/.config/containerctl/config.json`)
 3. `./stack.yaml`
 
-The saved path lives in `$XDG_CONFIG_HOME/containerctl/config.json` (or `~/.config/containerctl/config.json`). This is independent of the browser terminal's session-only `use` command under `serve`.
+```sh
+containerctl stack /path/to/stack.yaml
+containerctl status                     # uses that file
+containerctl apply -f other.yaml        # -f wins this run
+containerctl stack --unset
+```
 
-### Selecting containers with `-l` / `--label`
+This is separate from `use` in the web terminal, which is session-only.
 
-Six commands accept kubectl-style label selectors against each container's stack YAML `labels:` map:
+## Labels
 
-| Command | Notes |
-|---------|--------|
-| `apply` | Partial apply when `-l` or names are set (no orphan cleanup); `--follow` needs exactly one selected container |
-| `status` | Filter the status table |
-| `update` | Limit registry check / `--apply`; `--follow` needs exactly one selected container |
-| `start` | Requires a name, `-l`, or `--all` |
-| `stop` | Requires a name, `-l`, or `--all` |
-| `restart` | Requires a name, `-l`, or `--all` |
-| `down` | No names/`-l` = whole project |
-
-**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `upgrade`.
-
-#### Selector syntax
+`-l` matches the container's stack YAML `labels:` (not live host labels alone). Changing a label updates the config hash.
 
 | Selector | Meaning |
-|----------|---------|
-| `KEY` | Label **must exist** (any value) |
-| `!KEY` | Label **must not exist** |
-| `KEY=VALUE` | Present and equal to `VALUE` |
-| `KEY!=VALUE` | Absent, or present with a different value |
+|---|---|
+| `KEY` | Key present |
+| `!KEY` | Key absent |
+| `KEY=VALUE` | Equal |
+| `KEY!=VALUE` | Absent or different |
 
-- Commas separate terms (**AND**): `-l release,environment=production`
-- Multiple `-l` flags are also **AND**
-- Names + `-l` → **intersection**
-- Matching uses **stack YAML** `labels:` only (not live host labels alone)
-- Changing a label is part of the config hash and will recreate the container on next full/partial apply of that container
-
-```yaml
-# stack.yaml
-containers:
-  - name: web
-    image: myapp:1
-    labels:
-      app: frontend
-      environment: production
-      release: "v1"
-  - name: web-dev
-    image: myapp:1
-    labels:
-      app: frontend
-      environment: development
-      release: "v1"
-  - name: redis
-    image: redis:7
-    labels:
-      app: cache
-      environment: production
-```
+Comma-separated terms and repeated `-l` are AND. Names plus `-l` are the intersection. Quote `!` in the shell: `-l '!debug'`.
 
 ```sh
-# has "release" AND environment=production  → web
 containerctl apply -l release,environment=production
-
-# frontend, not development  → web
 containerctl status -l app=frontend,environment!=development
-
-# no "release" label  → redis (and any unlabeled containers)
 containerctl stop -l '!release'
-
-# names ∩ labels
-containerctl restart web web-dev redis -l environment=production
-# → web, redis
+containerctl restart web redis -l environment=production
 ```
 
-Quote `!` in shells that treat it specially: `-l '!debug'` or `-l '!release,environment=production'`.
+Partial `apply` (names and/or `-l`) does not remove orphaned containers or networks.
 
-### Web terminal (`serve`)
+## Stop, disable, remove
 
-`containerctl serve` starts an HTTP/HTTPS server with a browser-based terminal. After logging in with a shared token, the browser session behaves like the CLI.
+| Need | How |
+|---|---|
+| Temporary | `stop` (next `apply` starts it) |
+| Off until you enable | `disable` (state file, survives `apply` and reboot) |
+| Removed from the stack | `disabled: true` in YAML (container removed on next `apply`) |
 
-```bash
-# Plain HTTP (behind a TLS-terminating proxy)
-CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --address :9090 --file stack.yaml
+`enable` refuses nothing except a missing name; it clears the state-file disable and then reconciles.
 
-# Self-signed HTTPS (LAN, browser warning expected)
-CONTAINERCTL_TOKEN=mysecrettoken containerctl serve --tls self-signed --file stack.yaml
+## Updates
 
-# Let's Encrypt
-CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
+```sh
+containerctl update
+containerctl update --apply
+```
+
+`--apply` pulls and recreates for patch/minor tag moves and digest changes. Major tag moves are printed; edit the image tag yourself.
+
+`update_policy: manual` is still checked and shown (`(manual)`), but `--apply` never touches it. Persistently disabled containers show `(disabled)` and are skipped.
+
+`repull` force-pulls a floating tag (`:latest`) and recreates without consulting the hash.
+
+## exec
+
+```sh
+containerctl exec postgres
+containerctl exec postgres bash
+containerctl exec postgres -- ps aux
+```
+
+When stdin is a TTY, a PTY is allocated, the host terminal goes raw, and window size (including resize) is forwarded. No `-it`. The terminal is restored on exit, including a non-zero exit code.
+
+## cp
+
+Logical stack name, not `<project>_<name>`. Works on running or stopped containers. Distinct containers stream a tar through the engine. Same-container copies drain to a host temp file first (overlapping archive GET and PUT on one container deadlocks the engine).
+
+```sh
+containerctl cp postgres:/dump.sql ./dump.sql
+containerctl cp ./config.yaml app:/etc/app/config.yaml
+containerctl cp postgres:/dump.sql app:/backup/dump.sql
+containerctl cp -L app:/current ./current
+containerctl cp -a ./data app:/var/lib/data
+containerctl cp app:/etc/nginx/nginx.conf -
+containerctl cp - app:/restore < backup.tar
+```
+
+| Flag | Meaning |
+|---|---|
+| `-a`, `--archive` | Keep uid/gid when copying into a container |
+| `-L`, `--follow-link` | Follow a symlink at `SRC_PATH` |
+| `--overwrite` | Allow replacing a directory with a file in the container (and the reverse) |
+| `-q`, `--quiet` | No success line |
+
+A directory copied into an existing directory becomes a subdirectory. Trailing `/.` copies contents only. `-` on the host side is a tar stream (stdin dest must be a directory).
+
+In the web terminal, `cp` needs `serve.exec.enabled` (and `serve.exec.allowed` when set; both containers for container-to-container). Host-path copies are rejected there; stream with `-`, copy between containers, or use the CLI.
+
+## Import (`generate`)
+
+Adopts containers created with `docker run` or Compose:
+
+```sh
+containerctl generate --project home-services
+containerctl generate --project home-services name1 name2 -O stack.yaml
+containerctl apply --dry-run -f stack.yaml
+```
+
+For containers containerctl already manages, `generate` then `apply --dry-run` reports no changes.
+
+Omitted on purpose: image-default settings, `containerctl.*` / `com.docker.compose.*` labels, anonymous volumes (commented), exposed-only ports, and fields that cannot be recovered (`env_file`, `depends_on`, `update_policy`, `disabled`). Unrepresentable items print `WARN:` on stderr. `env:` values are copied verbatim (that is why `-O` is mode `0600`). Output is deterministic.
+
+## Web terminal
+
+```sh
+CONTAINERCTL_TOKEN=secret containerctl serve --address :9090 --file stack.yaml
+CONTAINERCTL_TOKEN=secret containerctl serve --tls self-signed --file stack.yaml
+CONTAINERCTL_TOKEN=secret containerctl serve \
   --tls letsencrypt --tls-domain containerctl.example.com --file stack.yaml
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--address ADDR` | `:8080` | TCP address to listen on. |
-| `--token TOKEN` | — | Required. Also read from `CONTAINERCTL_TOKEN` env var. |
-| `--tls MODE` | `none` | `none` \| `self-signed` \| `letsencrypt` \| `custom` |
-| `--tls-domain DOMAIN` | — | Public domain (required for `letsencrypt`). |
-| `--tls-cert PATH` | — | Certificate file (required for `custom`). |
-| `--tls-key PATH` | — | Key file (required for `custom`). |
-| `--session-ttl DURATION` | `24h` | Session validity duration. |
+| Flag | Default | Meaning |
+|---|---|---|
+| `--address` | `:8080` | Listen address |
+| `--token` | (required) | Also `CONTAINERCTL_TOKEN` |
+| `--tls` | `none` | `none`, `self-signed`, `letsencrypt`, `custom` |
+| `--tls-domain` | | Required for `letsencrypt` |
+| `--tls-cert`, `--tls-key` | | Required for `custom` |
+| `--session-ttl` | `24h` | Session lifetime |
 
-**Browser features:**
+Browser: same commands as the CLI (except `upgrade`), tab completion, dark/light/auto theme. Login: 5 failures, then a 30s block.
 
-- All `containerctl` commands available in the browser terminal.
-- Tab-completes command names and container names.
-- Color themes: dark (default) / light / auto (follows system preference). Toggle button in the top bar; persists across reloads and also affects the login page and editor.
-- `edit` — opens the active stack file in a full-screen vim-style editor (YAML syntax highlighting, vim keybindings, concurrent-edit protection). Keys: `:w` / `Ctrl+S` save · `:wq` / `:x` save+quit · `:q` quit · `:q!` / `Ctrl+Q` force-quit. Requires `serve.edit.enabled: true`.
-- `use /path/to/other-stack.yaml` — switch the active stack file for the current session without restarting the server. Requires `serve.use.enabled: true`.
-- `exec <container> bash` — opens a full interactive PTY session in the browser. Requires `serve.exec.enabled: true`.
-- `cp NAME:SRC -` / `cp SRC_NAME:SRC DEST_NAME:DEST`: stream a tar, or copy between containers. Requires `serve.exec.enabled: true`. Host-path copies are CLI-only.
-- Login brute-force protection: 5 failures → 30-second block with countdown timer.
-
-**Exec from the browser** is opt-in because it gives full shell access to the container. Enable it in `stack.yaml`:
+Gated in YAML (off by default):
 
 ```yaml
 serve:
   exec:
     enabled: true
-    allowed:        # omit or leave empty to permit all containers
-      - myapp
-      - debug-sidecar
+    allowed: [myapp]          # empty or omitted = all
+  edit:
+    enabled: true             # vim-style stack editor
+  use:
+    enabled: true             # session-only `use /path/to/stack.yaml`
 ```
 
-### exec
+`edit` keys: `:w` / `Ctrl+S` save, `:wq` / `:x` save and quit, `:q` quit, `:q!` / `Ctrl+Q` discard. Concurrent edits return 409 (ETag). `exec <name> bash` opens a PTY in the same terminal.
 
-`exec` opens an interactive shell (or runs any command) inside a running container:
+## Structured output
 
-```sh
-containerctl exec postgres            # /bin/sh
-containerctl exec postgres bash       # bash
-containerctl exec postgres -- ps aux  # non-interactive
-```
+`-o json` and `-o yaml` (2-space indent) add fields the console table hides: image digest and size, network IPs, mounts, resource limits, timestamps in the host timezone (`created_at`, `started_at`, `last_restart`). `status --stats` adds a `stats` object (`cpu_percent`, throttle counters, `memory_used`). Zero throttle/fail values are omitted. `images`, `volumes`, and `networks` include the containers attached to each object. `volumes --size` adds byte size (`-1` if the driver does not report).
 
-When stdin is a terminal, a PTY is allocated and the terminal is put into raw mode automatically — no `-it` flags needed. Window resize is forwarded to the container so `vim`, `less`, and similar tools work correctly. The terminal is always restored cleanly on exit, including when the command exits with a non-zero code.
+## Other runtimes
 
-### cp
-
-`cp` copies files and directories between a managed container and the host, or from one managed container to another, using the logical name from the stack (not the runtime name `<project>_<name>`). The container may be running or stopped. Copies between two different containers stream a tar through the engine. A copy within the same container is fully read first (a temp file on the host), then written. Overlapping archive GET and PUT on one container deadlocks in the engine.
-
-```sh
-containerctl cp postgres:/var/lib/postgresql/data/dump.sql ./dump.sql
-containerctl cp ./config.yaml app:/etc/app/config.yaml
-containerctl cp postgres:/dump.sql app:/backup/dump.sql   # container → container
-containerctl cp -L app:/current ./current          # follow a symlink at SRC
-containerctl cp -a ./data app:/var/lib/data        # preserve uid/gid in the container
-containerctl cp app:/etc/nginx/nginx.conf -        # tar to stdout
-containerctl cp - app:/restore < backup.tar        # tar from stdin (dest must be a directory)
-```
-
-| Flag | Description |
-|------|-------------|
-| `-a`, `--archive` | Preserve uid/gid when copying **into** a container. |
-| `-L`, `--follow-link` | Follow a symlink at `SRC_PATH` (not every symlink in a copied tree). |
-| `--overwrite` | Allow replacing a directory with a file in the container (and vice versa). |
-| `-q`, `--quiet` | Do not print the success summary. |
-
-A directory copied into an existing directory becomes a subdirectory. A trailing `/.` on the source copies the directory's contents, not the directory itself. `-` as the host side streams a tar archive.
-
-From the web terminal, `cp` requires `serve.exec.enabled` (and `serve.exec.allowed` when set; both containers must be allowed for a container-to-container copy). Host-path copies are rejected there so a browser session cannot read or write the server's disk; use `-` to stream a tar, copy between containers, or run `cp` from the CLI.
-
-### Structured output
-
-`-o json` and `-o yaml` emit richer data than the console table. All JSON and YAML output is indented with 2 spaces.
-
-```yaml
-# containerctl status -o yaml
-- name: postgres
-  container_name: home-services_postgres
-  image: postgres:16
-  image_digest: sha256:3a9f…c21b
-  image_size: 127.3 MiB
-  state: running
-  container_id: a3f2b1c94d8e
-  ports:
-    - host_ip: 127.0.0.1
-      host_port: "5432"
-      container_port: "5432"
-      protocol: tcp
-  networks:
-    - name: backend
-      ip_address: 172.18.0.3
-      gateway: 172.18.0.1
-  mounts:
-    - type: volume
-      name: pgdata
-      source: /var/lib/docker/volumes/pgdata/_data
-      destination: /var/lib/postgresql/data
-    - type: bind
-      source: /host/config
-      destination: /etc/config
-      read_only: true
-  created_at: "2026-05-01T13:30:00.580976787+05:30"
-  started_at: "2026-05-14T15:52:00.123456789+05:30"
-  restart_count: 2
-  last_restart: "2026-05-15T08:41:42.456789012+05:30"
-  sync: ok
-  resources:
-    cpus: "2"
-    memory: 2.0 GiB
-```
-
-```yaml
-# containerctl status --stats -o yaml
-- name: postgres
-  ...
-  stats:
-    cpu_percent: 0.42
-    cpu_throttled_periods: 42
-    cpu_throttled_time: 1.3s
-    cpu_throttled_time_ns: 1300000000
-    memory_used: 38.2 MiB
-    memory_used_bytes: 40042496
-```
-
-Fields that are not applicable are omitted. The `stats` object is present only when `--stats` is passed. Within it, `cpu_throttled_time` and `cpu_throttled_time_ns` are omitted when zero; `memory_fail_count` is omitted when zero (cgroups v1 only; always absent on cgroups v2 systems). Timestamps (`created_at`, `started_at`, `last_restart`) are emitted in the host's local timezone (e.g. `"2026-05-31T06:51:27.580976787+05:30"`).
-
-**Resource listing commands** also produce enriched structured output:
-
-```yaml
-# containerctl volumes -o yaml
-- name: pgdata
-  driver: local
-  mountpoint: /var/lib/docker/volumes/pgdata/_data
-  containers:
-    - name: postgres
-      state: running
-      source: /var/lib/docker/volumes/pgdata/_data
-      destination: /var/lib/postgresql/data
-
-# containerctl volumes --size -o yaml  (triggers daemon-side disk scan)
-- name: pgdata
-  driver: local
-  mountpoint: /var/lib/docker/volumes/pgdata/_data
-  size: 47399936    # bytes; -1 when driver doesn't report
-  containers: [...]
-
-# containerctl networks -o yaml
-- id: abc123
-  name: backend
-  driver: bridge
-  containers:
-    - name: postgres
-      state: running
-      ip_address: 172.18.0.3
-      gateway: 172.18.0.1
-
-# containerctl images -o yaml
-- id: a3f2b1c94d8e
-  tags: [postgres:16]
-  size: 133169152
-  created: 2026-01-10T00:00:00Z
-  containers:
-    - name: postgres
-      state: running
-```
-
----
-
-## Other runtimes (OrbStack, Colima, Rancher Desktop)
-
-Any Docker API-compatible runtime works. Set the socket path in `stack.yaml` and omit `runtime:`:
+Any Docker-compatible socket works. Set `socket:` and you can omit `runtime:`:
 
 ```yaml
 project: myapp
 socket: /Users/you/.orbstack/run/docker.sock
 ```
 
-The `--socket` flag overrides `stack.yaml`; `--runtime` overrides `stack.runtime`.
-
----
+`--socket` overrides YAML. `--runtime` overrides `runtime:`.
 
 ## Network aliases
 
-By default, containers on the same user-defined network reach each other using the container name (e.g. `http://postgres:5432`). `network_aliases` lets you add extra DNS names without changing the container name:
+On a user-defined network, the container name is already a DNS name. `network_aliases` adds more, on every network the container joins. Alias changes update the config hash.
 
 ```yaml
 containers:
   - name: postgres
-    image: postgres:16
     networks: [backend]
-    network_aliases:
-      - db.backend
-      - primary.backend
+    network_aliases: [db.backend, primary.backend]
 ```
 
-Any container on `backend` can now reach it via any of:
-
-```
-http://postgres:5432      # container name (always works)
-http://db.backend:5432    # alias
-http://primary.backend:5432 # alias
-```
-
-Aliases are registered on every network the container joins. Adding, removing, or changing aliases is detected by the config hash and triggers recreation on the next `apply`.
-
----
-
-## Importing existing containers
-
-Already running containers you started with `docker run` or `docker compose`? `generate` writes the equivalent `stack.yaml` so you can adopt them instead of retyping them:
-
-```bash
-# Everything on the host, to stdout
-containerctl generate --project home-services
-
-# Just two containers, into a file (mode 0600)
-containerctl generate --project home-services home-services_mosquitto home-services_whoami -O stack.yaml
-
-# Verify before touching anything
-containerctl apply --dry-run -f stack.yaml
-```
-
-For containers containerctl already manages, `generate` → `apply --dry-run` reports **no changes**: the output is the inverse of what `apply` created.
-
-What it deliberately leaves out, so the file stays readable:
-
-- settings identical to the image defaults (`command`, `entrypoint`, `env`, `user`, `working_dir`, `labels`, `healthcheck`)
-- `containerctl.*` and `com.docker.compose.*` labels, which are tool bookkeeping rather than your configuration
-- anonymous volumes, whose IDs cannot be reproduced, so they are emitted as commented-out entries for you to replace with a real path
-- exposed-only ports (no host binding), and DNS aliases the runtime invents (container name, hostname, short ID)
-- `env_file`, `depends_on`, `update_policy` and `disabled`, none of which are recoverable from a running container
-
-Anything that cannot be represented is reported as a `WARN:` line on stderr, so `2>/dev/null` gives you a clean file and the warnings stay reviewable. Two cases deserve a look:
-
-- **Foreign networks.** containerctl prefixes networks with the project name, so a compose network like `shop_default` cannot be reused as-is: `apply` would create `<project>_shop_default` and attach the container there. Either rename the network or keep the container out of the generated stack.
-- **Secrets.** `env:` values are copied verbatim, tokens and passwords included. That is why `-O` creates the file with mode `0600`. Review it before committing.
-
-Output is deterministic: regenerating an unchanged host produces a byte-identical file, so it is safe to keep the result in git and re-run.
-
----
-
-## Update detection
-
-```sh
-containerctl update
-
-NAME        IMAGE                STATUS        NOTE
-postgres    postgres:16           patch update  16.1, 16.2, 16.3; major: 17.0.0
-redis       redis:7.2-alpine      up-to-date
-app         registry.../app:v1.4  digest changed  sha256:3a9f… → sha256:c21b…
-vault       vault:1.15            manual
-```
-
-`--apply` pulls and recreates containers with patch/minor updates or digest changes. Major version bumps are shown but require a manual tag edit — breaking changes are your call.
-
-Containers with `update_policy: manual` in YAML are checked and reported but never touched by `--apply`. Their STATUS shows `up-to-date (manual)` or `patch update (manual)` so available updates are visible without automatic action.
-
----
+Reachable as `postgres`, `db.backend`, and `primary.backend`.
 
 ## Private registries
 
-`containerctl` merges credentials from all auto-detected locations plus any explicit `auth_file`. Auto-detected files are checked in this order (first-wins among them); `auth_file` from `stack.yaml` is overlaid last and takes highest precedence on any conflict.
+Credentials are merged from auto-detected files (first match per registry), then `auth_file:` from the stack (wins on conflict). Docker/Podman JSON: `{"auths": {...}}`.
 
 | Source | Path |
-|--------|------|
+|---|---|
 | Podman env | `$REGISTRY_AUTH_FILE` |
 | Docker env | `$DOCKER_CONFIG/config.json` |
 | Docker default | `~/.docker/config.json` |
 | Podman rootless | `$XDG_RUNTIME_DIR/containers/auth.json` |
 | Podman rootless fallback | `~/.config/containers/auth.json` |
 | Podman root | `/etc/containers/auth.json` |
-| **stack.yaml** (highest) | value of `auth_file:` |
+| Stack (highest) | `auth_file:` |
 
-If credentials live somewhere else (CI secret mounts, non-standard paths), point to the file explicitly:
+Used by `pull`, `apply`, `repull`, `update`, and remote digest checks.
 
-```yaml
-project: myapp
-auth_file: /run/secrets/registry-auth.json
-```
+## How apply works
 
-`auth_file` overrides auto-detected credentials for the same registry, but credentials from auto-detected files for other registries remain available. The file must be in Docker/Podman JSON format (`{"auths": {...}}`), the same file `docker login` writes.
+Each managed container has a `containerctl.config-hash` label (SHA-256 of the normalized spec).
 
-Credentials are used by `pull`, `apply`, `repull`, `update`, and remote digest checks — all registry operations go through the same credential resolution.
+1. Pull images for creates and recreates (parallel).
+2. Create missing declared networks.
+3. In `depends_on` order: create if missing, recreate if the hash changed, skip if identical.
+4. Full apply only (no name/`-l` filter): remove managed containers and networks that are no longer declared.
 
----
+`depends_on` is start order only, not a health gate.
 
-## Three ways to turn something off
-
-| Need | How |
-|---|---|
-| Quick troubleshoot | `containerctl stop nginx` — transient, next `apply` restarts it |
-| Off until I say so | `containerctl disable nginx` — persistent, survives `apply` and reboots |
-| Gone from the stack | `disabled: true` in YAML — tracked in git, container removed on next `apply` |
-
----
-
-## stack.yaml reference
+## stack.yaml
 
 ```yaml
-project: string          # required. Namespace; final container name = <project>_<name>.
-runtime: docker|podman   # optional. Default: docker.
-socket: string           # optional. Override socket path. If set, runtime type is optional.
-data_path: string        # optional for volumes/env_file; required when using files:
-                         # managed file content is always written under data_path/files/.
-                         # Relative values are resolved against the stack file's directory.
-auth_file: string        # optional. Path to a Docker/Podman credential JSON file.
+# Required. Namespace for every managed object on this host.
+# Runtime container name is <project>_<name>, e.g. home_postgres.
+project: string
 
-files:                   # optional. Named file bodies embedded in the stack (requires data_path).
-  - name: app-conf       # plain name only (no path separators)
-    content: |           # written to <data_path>/files/<name> on apply/create
+# Engine. Default docker. Overridden by --runtime.
+runtime: docker|podman
+
+# Docker-API socket. If set, runtime: is optional (OrbStack, Colima, Podman, …).
+# Overridden by --socket.
+socket: string
+
+# Base dir for relative volume sources and env_file paths (resolved against
+# the stack file directory, not the process CWD). Required when files: is used;
+# content is always written to <data_path>/files/<name>.
+data_path: string
+
+# Docker/Podman auth JSON ({"auths":{...}}). Highest precedence for that registry.
+auth_file: string
+
+# Small files embedded in the stack. YAML is the source of truth: the host
+# copy is rewritten on every create/recreate. name is a plain identifier.
+files:
+  - name: app-conf
+    content: |
       log_level: info
 
-serve:                   # optional. Controls "containerctl serve" behaviour.
+# Browser terminal (containerctl serve). All off by default.
+serve:
   exec:
-    enabled: false       # set true to allow exec commands.
-    allowed: []          # container names permitted for exec; empty = all allowed.
+    enabled: false          # interactive exec and web cp
+    allowed: []             # logical names; empty = every container
   edit:
-    enabled: false       # set true to allow the browser stack file editor.
+    enabled: false          # vim-style editor for this stack file
   use:
-    enabled: false       # set true to allow switching stacks with the "use" command.
+    enabled: false          # session-only `use /other/stack.yaml`
 
+# User-defined networks. Created as <project>_<name> if missing.
 networks:
-  - name: string         # required.
-    driver: string       # optional. Default: bridge.
+  - name: string
+    driver: string          # default bridge
 
 containers:
-  - name: string         # required.
-    image: string        # required. e.g. postgres:16
-    disabled: bool       # optional. apply removes the container and skips creation.
-    update_policy: auto|manual  # optional. manual = skip update entirely.
-    command: string|[string]  # optional. Overrides image CMD (args to the entrypoint).
-                              # string form is shell-split into argv (Compose-style):
-                              #   command: serve --port 8080
-                              #   command: ["serve", "--port", "8080"]
-    entrypoint: string|[string] # optional. Overrides image ENTRYPOINT (same forms as command).
+  - name: string            # required. Logical name used by every command
+    image: string           # required. e.g. postgres:16 or registry/app@sha256:…
+
+    # apply removes the container and will not create it again.
+    # Different from `containerctl disable` (state file, survives apply).
+    disabled: bool
+
+    # auto (default): update --apply may pull patch/minor and digest changes.
+    # manual: still listed by update, never applied.
+    update_policy: auto|manual
+
+    # Overrides image CMD / ENTRYPOINT. A string is shell-split into argv
+    # (quotes and backslashes). It is not executed by a shell.
+    #   command: serve --port 8080
+    #   command: ["serve", "--port", "8080"]
+    command: string|[string]
+    entrypoint: string|[string]
+
     restart: no|on-failure|always|unless-stopped
+
     ports:
-      - "HOST:CONTAINER"
-      - "IP:HOST:CONTAINER/proto"
+      - "HOST:CONTAINER"              # 8080:80
+      - "IP:HOST:CONTAINER/proto"     # 127.0.0.1:5432:5432/tcp
+
     volumes:
-      - "/host/path:/container/path"
-      - "named-volume:/container/path:ro"
-    files:                       # optional. Bind-mount managed files (from top-level files:)
-      - source: app-conf         # must match files[].name
-        target: /etc/app/config.yaml  # absolute path inside the container
-        mode: "0644"             # optional host file mode (octal); default 0644
-        read_only: true          # optional; default true
+      - "/host/path:/container/path"           # bind
+      - "named-volume:/container/path:ro"      # named, read-only
+
+    # Bind-mount a files: entry. Written under data_path/files/ first.
+    files:
+      - source: app-conf               # must match files[].name
+        target: /etc/app/config.yaml   # absolute path in the container
+        mode: "0644"                   # host file mode; default 0644
+        read_only: true                # default true
+
     env:
-      KEY: value
-    env_file:                    # string or list; relative paths use data_path (or stack dir)
-      - "secrets.env"
-    networks: [backend]
-    network_aliases:
-      - db.backend            # reachable as this name on all connected networks
-    depends_on: [postgres]   # start order only; not a healthcheck gate.
+      KEY: value                       # ${VAR} expanded at load time
+    env_file: secrets.env              # string or list; KEY=VALUE file
+
+    networks: [backend]                # join these declared networks
+    network_aliases: [db.backend]      # extra DNS names on every joined network
+
+    # Start/create order only. Not a healthcheck gate.
+    depends_on: [postgres]
+
     resources:
-      cpus: "2.0"
-      memory: "512m"
+      cpus: "2.0"                      # CFS quota
+      memory: "512m"                   # 512m, 2g, …
       pids_limit: 200
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 30s
-    user: "1000:1000"
+
+    user: "1000:1000"                  # uid:gid inside the container
     hostname: string
     working_dir: string
     dns: [8.8.8.8]
-    group_add:
-      - "1500"             # add supplementary GID without changing user or primary group
+    group_add: ["1500"]                # extra GIDs; user/primary group unchanged
     cap_add: [NET_ADMIN]
     cap_drop: [ALL]
     privileged: bool
-    security_opt:
-      - "seccomp=unconfined"
-      - "apparmor=unconfined"
-    read_only: bool
+    security_opt: ["seccomp=unconfined"]
+    read_only: bool                    # root filesystem read-only
     tmpfs: [/tmp]
-    labels:                    # optional. Applied to the container; also used by -l/--label filters
+
+    # Applied on the container. Also the target of -l/--label.
+    # Changing a label updates the config hash.
+    labels:
       app: frontend
       environment: production
-      release: "v1"
 ```
 
-See [Selecting containers with `-l` / `--label`](#selecting-containers-with--l----label) for filter syntax.
+Every string is expanded at load time:
 
-**Environment variable expansion** is applied to every string value at load time:
-
-| Syntax | Behaviour |
-|--------|-----------|
-| `$VAR` / `${VAR}` | Value of `VAR`; empty string if unset |
-| `${VAR:-default}` | Value of `VAR` if set and non-empty, otherwise `default` |
-| `$$` | Literal `$` — no expansion, passed through to the container as-is |
+| Syntax | Result |
+|---|---|
+| `$VAR` / `${VAR}` | Value, or empty if unset |
+| `${VAR:-default}` | Value if set and non-empty, else `default` |
+| `$$` | Literal `$` (passed through to the container) |
 
 ```yaml
 env:
-  MODE: "${APP_MODE:-production}"       # uses "production" if APP_MODE is unset
-
+  MODE: "${APP_MODE:-production}"
 command:
-  - "--log-level=${LOG_LEVEL:-info}"    # containerctl resolves the default at load time
-  - "--raw=$${LOG_LEVEL:-info}"         # container receives ${LOG_LEVEL:-info} literally
+  - "--log-level=${LOG_LEVEL:-info}"
+  - "--raw=$${LOG_LEVEL:-info}"
 ```
-
----
-
-## How reconciliation works
-
-Each managed container carries a `containerctl.config-hash` label — a SHA-256 of its normalized spec. On `apply`:
-
-1. Pull images for containers that will be created or recreated (parallel).
-2. Create any declared networks that don't exist.
-3. For each container in dependency order: **create** if missing, **recreate** if hash changed, **skip** if identical.
-4. On a full apply (no name filter): remove containers and networks that are managed but no longer declared.
-
-Partial `apply name` only affects the named containers — it never removes orphaned containers or networks.
-
----
-
-## Full specification
-
-See [docs/SPEC.md](docs/SPEC.md) for the complete design — runtime interface, hash inputs, plan algorithm, error model, and future roadmap.
