@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/moby/term"
 )
 
 func watchResize(ctx context.Context, fd uintptr, fn func(rows, cols uint16)) {
@@ -24,8 +22,8 @@ func watchResize(ctx context.Context, fd uintptr, fn func(rows, cols uint16)) {
 				if !ok {
 					return
 				}
-				if ws, err := term.GetWinsize(fd); err == nil {
-					fn(ws.Height, ws.Width)
+				if h, w, ok := ttySize(fd); ok {
+					fn(h, w)
 				}
 			}
 		}

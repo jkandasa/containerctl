@@ -19,7 +19,6 @@ import (
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
-	"github.com/moby/term"
 
 	cerrdefs "github.com/containerd/errdefs"
 
@@ -693,13 +692,10 @@ func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int,
 		cmd = []string{"/bin/sh"}
 	}
 
-	var initialSize *[2]uint
-	if opts.Tty && opts.StdinFd != 0 {
-		if ws, err := term.GetWinsize(opts.StdinFd); err == nil {
-			sz := [2]uint{uint(ws.Height), uint(ws.Width)}
-			initialSize = &sz
-		}
-	}
+	// Stdin is fd 0 — a real descriptor. Do not treat 0 as "unset"; that
+	// skipped every CLI/web exec and left the container TTY at 80x24.
+	initialSize := consoleSize(opts)
+	env := ttyEnv(opts.Env, initialSize)
 
 	execResp, err := c.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
 		Cmd:          cmd,
@@ -707,7 +703,7 @@ func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          opts.Tty,
-		Env:          opts.Env,
+		Env:          env,
 		ConsoleSize:  initialSize,
 	})
 	if err != nil {
@@ -723,14 +719,20 @@ func (c *Client) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int,
 	}
 	defer attach.Close()
 
-	if opts.Tty && opts.StdinFd != 0 {
+	if opts.Tty {
 		resizeCtx, cancelResize := context.WithCancel(ctx)
 		defer cancelResize()
-		watchResize(resizeCtx, opts.StdinFd, func(rows, cols uint16) {
-			_ = c.cli.ContainerExecResize(resizeCtx, execResp.ID, container.ResizeOptions{
+		doResize := func(rows, cols uint16) error {
+			return c.cli.ContainerExecResize(resizeCtx, execResp.ID, container.ResizeOptions{
 				Height: uint(rows),
 				Width:  uint(cols),
 			})
+		}
+		// ConsoleSize on create/attach is often ignored until the process
+		// exists; apply the host size now (with retries) and then on SIGWINCH.
+		initExecResize(resizeCtx, opts.StdinFd, doResize)
+		watchResize(resizeCtx, opts.StdinFd, func(rows, cols uint16) {
+			_ = doResize(rows, cols)
 		})
 	}
 

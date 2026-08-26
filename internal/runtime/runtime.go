@@ -284,7 +284,7 @@ type ExecOptions struct {
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
-	StdinFd     uintptr // file descriptor of Stdin; used for window-size when Tty=true
+	StdinFd     uintptr // stdin file descriptor (0 is stdin, a valid fd); window size when Tty=true
 }
 
 // PathStat is metadata for a path inside a container filesystem.

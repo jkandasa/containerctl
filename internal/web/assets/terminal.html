@@ -367,6 +367,10 @@
         const containerName = params.get('name') || '';
         const cmd           = params.get('cmd')  || 'sh';
 
+        // Re-measure so the PTY is created at the live xterm size, not the
+        // 80x24 default. A stale width makes bash/readline wrap with CR and
+        // overwrite the current line instead of advancing to the next.
+        fitAddon.fit();
         params.set('rows', String(term.rows));
         params.set('cols', String(term.cols));
 
@@ -374,7 +378,9 @@
 
         execWs.onopen = function () {
           enterExecMode(containerName, cmd);
-          // Belt-and-suspenders: confirm PTY size even though it was set via query params.
+          fitAddon.fit();
+          // Confirm PTY size after attach; the exec process may not have been
+          // ready when StartWithSize ran.
           execWs.send(JSON.stringify({ type: 'resize', rows: term.rows, cols: term.cols }));
         };
 
