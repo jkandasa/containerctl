@@ -102,6 +102,15 @@ func (f *fakeRuntime) EngineVersion(ctx context.Context) (rt.EngineInfo, error) 
 func (f *fakeRuntime) Exec(ctx context.Context, id string, opts rt.ExecOptions) (int, error) {
 	panic("not implemented")
 }
+func (f *fakeRuntime) StatPath(ctx context.Context, id, path string) (*rt.PathStat, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) CopyFromContainer(ctx context.Context, id, srcPath string) (io.ReadCloser, rt.PathStat, error) {
+	panic("not implemented")
+}
+func (f *fakeRuntime) CopyToContainer(ctx context.Context, id, destPath string, content io.Reader, opts rt.CopyToOptions) error {
+	panic("not implemented")
+}
 
 // helper to create a managed container with proper labels
 func managedContainer(name, image, hash string) rt.ContainerInfo {

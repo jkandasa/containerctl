@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"io"
+	"os"
 	"time"
 
 	"github.com/jkandasa/containerctl/internal/registry"
@@ -68,6 +69,16 @@ type Runtime interface {
 
 	// Exec runs a command in a running container and returns its exit code.
 	Exec(ctx context.Context, id string, opts ExecOptions) (int, error)
+
+	// StatPath returns metadata for a path inside the container filesystem.
+	// The container may be running or stopped.
+	StatPath(ctx context.Context, id, path string) (*PathStat, error)
+	// CopyFromContainer returns a tar archive of srcPath and its metadata.
+	// The caller must close the reader. The container may be running or stopped.
+	CopyFromContainer(ctx context.Context, id, srcPath string) (io.ReadCloser, PathStat, error)
+	// CopyToContainer extracts a tar archive into destPath in the container.
+	// The container may be running or stopped.
+	CopyToContainer(ctx context.Context, id, destPath string, content io.Reader, opts CopyToOptions) error
 
 	Name() string
 	Ping(ctx context.Context) error
@@ -274,6 +285,21 @@ type ExecOptions struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	StdinFd     uintptr // file descriptor of Stdin; used for window-size when Tty=true
+}
+
+// PathStat is metadata for a path inside a container filesystem.
+type PathStat struct {
+	Name       string
+	Size       int64
+	Mode       os.FileMode
+	Mtime      time.Time
+	LinkTarget string
+}
+
+// CopyToOptions configures CopyToContainer.
+type CopyToOptions struct {
+	AllowOverwriteDirWithFile bool
+	CopyUIDGID                bool
 }
 
 type Healthcheck struct {

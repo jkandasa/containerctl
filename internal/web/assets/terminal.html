@@ -30,7 +30,7 @@
 
     // All known containerctl commands for tab completion.
     const ALL_CMDS = [
-      'apply', 'clear', 'diff', 'disable', 'down',
+      'apply', 'clear', 'cp', 'diff', 'disable', 'down',
       'edit', 'enable', 'exec', 'generate', 'help', 'images', 'logs', 'networks',
       'prune', 'pull', 'repull', 'restart', 'start', 'status', 'stop', 'update',
       'use', 'volumes',
@@ -40,6 +40,7 @@
     const CMD_FLAGS = {
       'apply':    [],
       'clear':    [],
+      'cp':       ['--archive', '--follow-link', '--overwrite', '--quiet'],
       'diff':     [],
       'disable':  [],
       'down':     [],

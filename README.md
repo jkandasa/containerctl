@@ -85,6 +85,7 @@ containerctl status           # see running state and sync status
 | `disable <name...>` | Persistent off via state file. Survives reboots and `apply`. |
 | `enable <name...> [--follow]` | Remove from state file and reconcile (recreate if hash drifted, otherwise start). `--follow` streams logs after enable (single container only). |
 | `exec <name> [command...]` | Run a command in a running container. Defaults to `/bin/sh`. Attaches a TTY when stdin is a terminal; window resize is handled automatically. |
+| `cp NAME:SRC DEST \| SRC NAME:DEST \| SRC_NAME:SRC DEST_NAME:DEST [-a] [-L] [-q] [--overwrite]` | Copy files or directories between a managed container and the host, or between two managed containers. Use the logical name from the stack. Works on running or stopped containers. `-` streams a tar archive to stdout or from stdin. See [cp](#cp). |
 | `logs <name> [--follow] [--tail N] [--clear] [--info]` | Stream container logs. `--tail -1` shows all (default); `--tail 0` shows none. `--info` prints the engine log path, size, and driver. `--clear` empties the current engine log file in place without stopping the container (file-backed drivers only; not with `--follow`/`--tail`). |
 | `images [name...] [--unused]` | List local images. `--unused` shows only images not referenced by any container or stack declaration. `-o json\|yaml` includes per-image container list (name, state). |
 | `volumes [--unused] [--size]` | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage from the daemon (triggers a daemon-side scan). `-o json\|yaml` includes per-volume mount details (source, destination, read_only) and host mountpoint. |
@@ -130,7 +131,7 @@ Six commands accept kubectl-style label selectors against each container's stack
 | `restart` | Requires a name, `-l`, or `--all` |
 | `down` | No names/`-l` = whole project |
 
-**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`.
+**Not supported on:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`.
 
 #### Selector syntax
 
@@ -220,6 +221,7 @@ CONTAINERCTL_TOKEN=mysecrettoken containerctl serve \
 - `edit` — opens the active stack file in a full-screen vim-style editor (YAML syntax highlighting, vim keybindings, concurrent-edit protection). Keys: `:w` / `Ctrl+S` save · `:wq` / `:x` save+quit · `:q` quit · `:q!` / `Ctrl+Q` force-quit. Requires `serve.edit.enabled: true`.
 - `use /path/to/other-stack.yaml` — switch the active stack file for the current session without restarting the server. Requires `serve.use.enabled: true`.
 - `exec <container> bash` — opens a full interactive PTY session in the browser. Requires `serve.exec.enabled: true`.
+- `cp NAME:SRC -` / `cp SRC_NAME:SRC DEST_NAME:DEST`: stream a tar, or copy between containers. Requires `serve.exec.enabled: true`. Host-path copies are CLI-only.
 - Login brute-force protection: 5 failures → 30-second block with countdown timer.
 
 **Exec from the browser** is opt-in because it gives full shell access to the container. Enable it in `stack.yaml`:
@@ -244,6 +246,31 @@ containerctl exec postgres -- ps aux  # non-interactive
 ```
 
 When stdin is a terminal, a PTY is allocated and the terminal is put into raw mode automatically — no `-it` flags needed. Window resize is forwarded to the container so `vim`, `less`, and similar tools work correctly. The terminal is always restored cleanly on exit, including when the command exits with a non-zero code.
+
+### cp
+
+`cp` copies files and directories between a managed container and the host, or from one managed container to another, using the logical name from the stack (not the runtime name `<project>_<name>`). The container may be running or stopped. Copies between two different containers stream a tar through the engine. A copy within the same container is fully read first (a temp file on the host), then written. Overlapping archive GET and PUT on one container deadlocks in the engine.
+
+```sh
+containerctl cp postgres:/var/lib/postgresql/data/dump.sql ./dump.sql
+containerctl cp ./config.yaml app:/etc/app/config.yaml
+containerctl cp postgres:/dump.sql app:/backup/dump.sql   # container → container
+containerctl cp -L app:/current ./current          # follow a symlink at SRC
+containerctl cp -a ./data app:/var/lib/data        # preserve uid/gid in the container
+containerctl cp app:/etc/nginx/nginx.conf -        # tar to stdout
+containerctl cp - app:/restore < backup.tar        # tar from stdin (dest must be a directory)
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a`, `--archive` | Preserve uid/gid when copying **into** a container. |
+| `-L`, `--follow-link` | Follow a symlink at `SRC_PATH` (not every symlink in a copied tree). |
+| `--overwrite` | Allow replacing a directory with a file in the container (and vice versa). |
+| `-q`, `--quiet` | Do not print the success summary. |
+
+A directory copied into an existing directory becomes a subdirectory. A trailing `/.` on the source copies the directory's contents, not the directory itself. `-` as the host side streams a tar archive.
+
+From the web terminal, `cp` requires `serve.exec.enabled` (and `serve.exec.allowed` when set; both containers must be allowed for a container-to-container copy). Host-path copies are rejected there so a browser session cannot read or write the server's disk; use `-` to stream a tar, copy between containers, or run `cp` from the CLI.
 
 ### Structured output
 

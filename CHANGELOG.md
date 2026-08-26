@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `cp` within the same container hung: the engine holds a filesystem lock for archive GET and PUT, so streaming the source into the destination on one container deadlocked. Same-container copies now drain the source archive (via a temp file) and close it before writing.
+
+### Added
+- `cp NAME:SRC DEST` / `cp SRC NAME:DEST` / `cp SRC_NAME:SRC DEST_NAME:DEST`: copy files and directories between a managed container and the host, or between two managed containers (docker-cp semantics). Distinct containers stream a tar through the engine; same-container copies drain to a host temp file first to avoid an engine deadlock. Works on running or stopped containers. Flags: `-a/--archive` (preserve uid/gid when copying into a container), `-L/--follow-link` (follow a symlink at `SRC_PATH`), `--overwrite` (allow replacing a directory with a file in the container), `-q/--quiet`. `-` streams a tar archive to stdout or from stdin. The web terminal allows `cp` only when `serve.exec.enabled` is set; host-path copies are rejected there (stream with `-`, or copy container-to-container). Both containers must be in `serve.exec.allowed` when that list is set.
+
 ---
 
 ## [v1.12.0] - 2026-08-23

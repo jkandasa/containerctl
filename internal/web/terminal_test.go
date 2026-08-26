@@ -57,6 +57,55 @@ func TestGenerateOutPath(t *testing.T) {
 	}
 }
 
+func TestCpContainerNames(t *testing.T) {
+	tests := []struct {
+		parts []string
+		want  []string
+	}{
+		{[]string{"cp", "postgres:/etc/hostname", "-"}, []string{"postgres"}},
+		{[]string{"cp", "-", "app:/restore"}, []string{"app"}},
+		{[]string{"cp", "-a", "app:/etc/x", "-"}, []string{"app"}},
+		{[]string{"cp", "./file", "app:/etc/file"}, []string{"app"}},
+		{[]string{"cp", "postgres:/dump.sql", "app:/backup/dump.sql"}, []string{"postgres", "app"}},
+		{[]string{"cp", "app:/a", "app:/b"}, []string{"app"}},
+		{[]string{"cp"}, nil},
+	}
+	for _, tc := range tests {
+		got := cpContainerNames(tc.parts)
+		if len(got) != len(tc.want) {
+			t.Errorf("cpContainerNames(%v) = %v, want %v", tc.parts, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("cpContainerNames(%v) = %v, want %v", tc.parts, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+func TestCpTouchesHostPath(t *testing.T) {
+	if !cpTouchesHostPath([]string{"cp", "app:/etc/x", "./out"}) {
+		t.Error("expected host path")
+	}
+	if !cpTouchesHostPath([]string{"cp", "./in", "app:/etc/x"}) {
+		t.Error("expected host path")
+	}
+	if cpTouchesHostPath([]string{"cp", "app:/etc/x", "-"}) {
+		t.Error("stdout is not a host path")
+	}
+	if cpTouchesHostPath([]string{"cp", "-", "app:/restore"}) {
+		t.Error("stdin is not a host path")
+	}
+	if cpTouchesHostPath([]string{"cp", "-a", "-q", "app:/etc/x", "-"}) {
+		t.Error("flags plus stdout should not count as a host path")
+	}
+	if cpTouchesHostPath([]string{"cp", "postgres:/dump.sql", "app:/backup/dump.sql"}) {
+		t.Error("container-to-container is not a host path")
+	}
+}
+
 func TestIsStackFilePath(t *testing.T) {
 	tests := []struct {
 		path string

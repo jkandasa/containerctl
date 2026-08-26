@@ -18,6 +18,8 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+
+	"github.com/jkandasa/containerctl/internal/copy"
 )
 
 var upgrader = websocket.Upgrader{
@@ -55,6 +57,7 @@ type connState struct {
 var cmdHelp = map[string]string{
 	"apply":    "reconcile host to desired state defined in the stack file  (--dry-run to preview, --follow to stream logs, single container)",
 	"clear":    "clear the terminal screen",
+	"cp":       "copy files between containers, or stream a tar with -  (host paths are CLI-only)",
 	"disable":  "persistently disable a container (survives apply)",
 	"down":     "stop and remove managed containers",
 	"edit":     "open the active stack file in the browser editor (vim keybindings)",
@@ -297,6 +300,34 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request) {
 					send(wsMsg{Type: "done"})
 					continue
 				}
+			}
+		}
+
+		if name == "cp" {
+			if !s.cfg.ExecEnabled {
+				send(wsMsg{Type: "error", Msg: "cp is disabled; set serve.exec.enabled: true in your stack.yaml and restart"})
+				finishCmd()
+				send(wsMsg{Type: "done"})
+				continue
+			}
+			names := cpContainerNames(parts)
+			if len(names) == 0 {
+				send(wsMsg{Type: "error", Msg: "usage: cp NAME:SRC -  |  cp - NAME:DEST  |  cp SRC_NAME:SRC DEST_NAME:DEST  (host paths are not available in the web terminal)"})
+				finishCmd()
+				send(wsMsg{Type: "done"})
+				continue
+			}
+			if denied := s.firstDisallowedExec(names); denied != "" {
+				send(wsMsg{Type: "error", Msg: fmt.Sprintf("%q is not in the exec allowlist; add it under serve.exec.allowed in your stack.yaml and restart", denied)})
+				finishCmd()
+				send(wsMsg{Type: "done"})
+				continue
+			}
+			if cpTouchesHostPath(parts) {
+				send(wsMsg{Type: "error", Msg: "cp with a host path is not available in the web terminal (it would read or write the server's disk). Stream a tar with \"-\", or run cp from the CLI."})
+				finishCmd()
+				send(wsMsg{Type: "done"})
+				continue
 			}
 		}
 
@@ -568,6 +599,48 @@ func isInteractiveExec(parts []string) bool {
 			return true
 		}
 		return false // first non-flag arg is not a shell → non-interactive command
+	}
+	return false
+}
+
+// cpContainerNames returns the logical container names from a cp invocation,
+// in the order they appear, with duplicates removed.
+func cpContainerNames(parts []string) []string {
+	var names []string
+	seen := make(map[string]bool)
+	for _, p := range parts[1:] {
+		if p != "-" && strings.HasPrefix(p, "-") {
+			continue
+		}
+		spec := copy.ParseArg(p)
+		if spec.Container != "" && !seen[spec.Container] {
+			seen[spec.Container] = true
+			names = append(names, spec.Container)
+		}
+	}
+	return names
+}
+
+func (s *Server) firstDisallowedExec(names []string) string {
+	for _, name := range names {
+		if !s.execContainerAllowed(name) {
+			return name
+		}
+	}
+	return ""
+}
+
+// cpTouchesHostPath reports whether any non-flag argument is a real host path
+// (not "-" for stdin/stdout). Host-path copies are rejected in the web terminal.
+func cpTouchesHostPath(parts []string) bool {
+	for _, p := range parts[1:] {
+		if p != "-" && strings.HasPrefix(p, "-") {
+			continue
+		}
+		spec := copy.ParseArg(p)
+		if spec.Host() && !spec.Stdio() {
+			return true
+		}
 	}
 	return false
 }

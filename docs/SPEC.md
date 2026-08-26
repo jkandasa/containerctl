@@ -65,8 +65,10 @@ containerctl/
 │   ├── networks.go         # list user-defined networks; --unused; -o json|yaml
 │   ├── prune.go            # remove unused images/volumes/networks
 │   ├── helpers.go          # formatAge, formatImageSize, stdinIsTerminal
+│   ├── cp.go               # copy files between container and host
 │   └── version.go
 ├── internal/
+│   ├── copy/               # host ↔ container copy (parse, tar, docker-cp semantics)
 │   ├── config/             # YAML load + validate + normalize + hash
 │   │   ├── config.go       # Stack, Container, Network, Resources, Healthcheck types
 │   │   ├── load.go         # Load(path) (*Stack, error); ${VAR} expansion, data_path resolution
@@ -292,6 +294,7 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
 | `containerctl enable <name...> [--follow]`                       | Removes from state file and reconciles the container (recreates if hash drifted, else starts). `--follow` streams logs after enable (single container only). | 0 ok, 1 error                            |
 | `containerctl logs <name> [--follow] [--tail N] [--clear] [--info]` | Stream container logs. `--info` prints the engine log path, size, and driver. `--clear` truncates the engine log file in place without stopping the container (json-file / k8s-file). Fails for journald or if the process cannot write the log path. Note: `--follow` has no `-f` shorthand (conflicts with global `-f/--file`). | 0 ok, 1 error                            |
+| `containerctl cp NAME:SRC DEST \| SRC NAME:DEST \| SRC_NAME:SRC DEST_NAME:DEST [-a] [-L] [-q] [--overwrite]` | Copy files or directories between a managed container and the host, or between two managed containers. Logical stack name (not `<project>_<name>`). Works on running or stopped containers. Distinct containers stream a tar through the engine. Same-container copies drain the source archive to a host temp file and close it before writing (the engine deadlocks if GET and PUT /archive overlap on one container). `-` streams a tar archive to stdout or from stdin (stdin dest must be a directory). `-a/--archive` preserves uid/gid when copying into a container. `-L/--follow-link` follows a symlink at `SRC_PATH`. `--overwrite` allows replacing a directory with a file in the container (and vice versa). `-q/--quiet` suppresses the success line. Trailing `/.` on the source copies directory contents, not the directory itself. | 0 ok, 1 error |
 | `containerctl images [name...] [--unused]`                       | List local images. `--unused` shows only images not referenced by any running container or stack declaration. `-o json\|yaml` includes per-image container list. | 0 ok, 1 error |
 | `containerctl volumes [--unused] [--size]`                       | List local volumes with attached containers. `--unused` shows only dangling volumes. `--size` fetches disk usage via the daemon's disk-usage endpoint (daemon-side scan). `-o json\|yaml` includes host mountpoint, size (when `--size` is given), and per-volume mount details. | 0 ok, 1 error |
 | `containerctl networks [--unused]`                               | List user-defined networks (bridge, host, none excluded). `--unused` shows only networks not connected to any container. `-o json\|yaml` includes per-network container list with IP address and gateway. | 0 ok, 1 error |
@@ -314,7 +317,7 @@ kubectl-style selection against each container's stack YAML `labels:` map. Match
 | `restart` | Requires at least one of: name(s), `-l`, or `--all` |
 | `down` | No names/`-l` → entire project; otherwise only matching managed containers |
 
-**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`.
+**Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`.
 
 #### Selector syntax
 
@@ -638,6 +641,9 @@ type Runtime interface {
     LogFileInfo(ctx context.Context, id string) (*LogFileInfo, error)
     TruncateLogs(ctx context.Context, id string) error
     Exec(ctx context.Context, id string, opts ExecOptions) (int, error)
+    StatPath(ctx context.Context, id, path string) (*PathStat, error)
+    CopyFromContainer(ctx context.Context, id, srcPath string) (io.ReadCloser, PathStat, error)
+    CopyToContainer(ctx context.Context, id, destPath string, content io.Reader, opts CopyToOptions) error
     ContainerStats(ctx context.Context, id string) (ContainerUsage, error)
 
     // Networks
@@ -1088,6 +1094,7 @@ Allowed commands:
 | `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |
 | `enable <name...> [--follow]` | subprocess |
 | `exec <name> [cmd...]` | see below |
+| `cp NAME:SRC - \| - NAME:DEST \| SRC_NAME:SRC DEST_NAME:DEST [-a] [-L] [-q] [--overwrite]` | subprocess; requires `serve.exec.enabled` and the exec allowlist (both containers, when copying between them). Host-path copies are rejected (use `-`, container-to-container, or the CLI) |
 | `generate [name...] [-O FILE]` | subprocess; `-O` requires `serve.edit.enabled` and an absolute `.yaml`/`.yml` path |
 | `help [command]` | built-in or subprocess (`<cmd> --help`) |
 | `images [name...] [--unused]` | subprocess |
@@ -1314,6 +1321,7 @@ Frontend JS (xterm.js, CodeMirror) is downloaded at build time and embedded — 
 - **Login brute-force protection:** after 5 consecutive failures from the same IP, that IP is blocked for 30 s. Counts reset after a successful login.
 - The terminal allowlist eliminates arbitrary command injection — user input is parsed and only recognised commands are dispatched.
 - **`exec` is opt-in and double-gated:** `serve.exec.enabled: true` must be set in stack.yaml AND the container name must be in the allowlist (if `allowed` is non-empty). Exec gives full shell access to the container, so it must be deliberately enabled.
+- **`cp` uses the same exec gate.** It is also opt-in via `serve.exec.enabled` and `serve.exec.allowed` (both containers must be allowed for a container-to-container copy). Host-path copies are rejected in the web terminal so an authenticated session cannot read or write the server's disk; use `-` to stream a tar, copy between containers, or run `cp` from the CLI.
 - **`edit` and `use` are opt-in** (see `serve.edit.enabled` / `serve.use.enabled`): the editor writes to files on disk; `use` allows browsing other stacks. Both default to disabled for minimal-privilege deployments.
 - **Every server-side write path honours `serve.edit.enabled`.** That covers the `edit` command, the `/api/v1/file` endpoint behind it (§12.9), and `generate -O FILE`, which makes the subprocess write to the server's disk. All three additionally require an absolute `.yaml`/`.yml` target, so an authenticated session cannot create or overwrite arbitrary files. `generate` without `-O` writes only to the terminal and needs no gate.
 - WebSocket origin check: the server compares the `Origin` header against the request `Host`; cross-origin WebSocket upgrades are rejected.
