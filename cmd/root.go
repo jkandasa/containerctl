@@ -116,7 +116,7 @@ func pingRuntime(ctx context.Context, runtime rt.Runtime) error {
 
 type authFileSetter interface{ SetAuthFile(path string) }
 
-// applyAuthFile wires the stack's auth_file into the runtime when supported.
+// applyAuthFile wires the stack's authfile into the runtime when supported.
 func applyAuthFile(runtime rt.Runtime, path string) {
 	if path == "" {
 		return

@@ -11,15 +11,29 @@ import (
 	rt "github.com/jkandasa/containerctl/internal/runtime"
 )
 
+var flagDownAll bool
+
 var downCmd = &cobra.Command{
-	Use:   "down [name...]",
+	Use:   "down [name...] | --all | -l selector",
 	Short: "Stop and remove managed containers (all if no names given)",
 	RunE:  runDown,
 }
 
 func init() {
+	downCmd.Flags().BoolVar(&flagDownAll, "all", false, "stop and remove all managed containers in the project")
 	addLabelFlag(downCmd)
 	rootCmd.AddCommand(downCmd)
+}
+
+// downSelectAll is the all argument for selectContainerNames.
+// --all with no names and no labels stays unfiltered so it matches bare down:
+// every managed container in the project, including ones dropped from the stack.
+// A name or -l still narrows the set; --all does not widen it.
+func downSelectAll(all bool, names, labels []string) bool {
+	if len(names) == 0 && len(labels) == 0 {
+		return false
+	}
+	return all
 }
 
 func runDown(cmd *cobra.Command, args []string) error {
@@ -33,7 +47,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 		stack.Project = flagProject
 	}
 
-	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, false, false)
+	selected, filtered, err := selectContainerNames(stack, args, flagLabels, false, downSelectAll(flagDownAll, args, flagLabels), false)
 	if err != nil {
 		return err
 	}

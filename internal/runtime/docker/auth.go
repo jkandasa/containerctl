@@ -25,38 +25,46 @@ type authEntry struct {
 }
 
 // registryAuth returns a base64-encoded JSON AuthConfig for the given image.
-// Credentials are merged from all auto-detected files plus the explicit auth_file:
+// Credentials are merged from all auto-detected files plus the explicit authfile:
 //   - Auto-detected files (first-wins among them):
 //     $REGISTRY_AUTH_FILE, $DOCKER_CONFIG/config.json, ~/.docker/config.json,
 //     $XDG_RUNTIME_DIR/containers/auth.json, ~/.config/containers/auth.json,
 //     /etc/containers/auth.json
-//   - auth_file from stack.yaml overlaid last (highest precedence, overrides auto-detected)
+//   - authfile from stack.yaml overlaid last (highest precedence, overrides auto-detected)
 //
 // Returns "" if no credentials are found (public image or not logged in).
-func registryAuth(authFile, img string) string {
-	authCfg := resolveAuth(authFile, img)
+// A non-empty authFile that cannot be read or parsed is an error. Missing
+// auto-detected files are ignored.
+func registryAuth(authFile, img string) (string, error) {
+	authCfg, err := resolveAuth(authFile, img)
+	if err != nil {
+		return "", err
+	}
 	if authCfg.Username == "" && authCfg.Password == "" {
-		return ""
+		return "", nil
 	}
 	encoded, err := json.Marshal(authCfg)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return base64.URLEncoding.EncodeToString(encoded)
+	return base64.URLEncoding.EncodeToString(encoded), nil
 }
 
 // credentialsFor returns username and password for the given image by searching
 // the same credential sources as registryAuth.
-func credentialsFor(authFile, img string) (username, password string) {
-	authCfg := resolveAuth(authFile, img)
-	return authCfg.Username, authCfg.Password
+func credentialsFor(authFile, img string) (username, password string, err error) {
+	authCfg, err := resolveAuth(authFile, img)
+	if err != nil {
+		return "", "", err
+	}
+	return authCfg.Username, authCfg.Password, nil
 }
 
 // resolveAuth is the shared credential resolution used by registryAuth and credentialsFor.
-func resolveAuth(authFile, img string) registrytypes.AuthConfig {
+func resolveAuth(authFile, img string) (registrytypes.AuthConfig, error) {
 	ref, err := reference.ParseNormalizedNamed(img)
 	if err != nil {
-		return registrytypes.AuthConfig{}
+		return registrytypes.AuthConfig{}, nil
 	}
 	serverAddr := reference.Domain(ref)
 	canonicalAddr := serverAddr
@@ -76,18 +84,26 @@ func resolveAuth(authFile, img string) registrytypes.AuthConfig {
 		}
 	}
 
-	// auth_file from stack.yaml overrides anything auto-detected.
+	// authfile from stack.yaml overrides anything auto-detected.
+	// Load already resolved a relative path against the stack directory.
 	if authFile != "" {
-		if cfg, err := loadAuthFile(authFile); err == nil {
-			mergeConfig(merged, cfg, true)
+		cfg, err := loadAuthFile(authFile)
+		if err != nil {
+			return registrytypes.AuthConfig{}, fmt.Errorf("auth file %s: %w", authFile, err)
 		}
+		mergeConfig(merged, cfg, true)
 	}
 
 	authCfg, err := resolveCredentials(merged, serverAddr, canonicalAddr)
-	if err != nil {
-		return registrytypes.AuthConfig{}
+	if err != nil && authFile != "" {
+		// Auto-detected files still fall back to an anonymous pull. An
+		// explicit authfile must surface a bad blob or credential helper.
+		return registrytypes.AuthConfig{}, err
 	}
-	return authCfg
+	if err != nil {
+		return registrytypes.AuthConfig{}, nil
+	}
+	return authCfg, nil
 }
 
 // mergeConfig copies entries from src into dst.

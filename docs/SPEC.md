@@ -119,6 +119,12 @@ runtime: docker|podman # optional. Default: docker. Overridable via --runtime fl
 data_path: string      # optional for volumes/env_file; required when files: are used.
                        # Managed file content is always stored under <data_path>/files/.
                        # Relative data_path values are resolved against the stack file's directory.
+authfile: string      # optional. Registry credential file (auth.json or Docker config.json).
+                       # Same name as podman/buildah/skopeo --authfile. Highest precedence.
+                       # Relative paths are resolved against the stack file's directory,
+                       # not the process working directory. pull/apply/repull/update fail
+                       # if the file cannot be read. Other commands still load the stack.
+                       # auth_file is the old key and is still accepted.
 files:                 # optional. Named file bodies embedded in the stack (requires data_path).
   - name: string       # required. Plain file name only (no path separators). Unique.
     content: string    # required body (may be empty). Written to <data_path>/files/<name>.
@@ -290,7 +296,7 @@ All commands accept `-f, --file PATH` and `--runtime docker|podman` (overrides Y
 | `containerctl repull <name> [--follow]`                          | Force-pull the image and recreate a container, bypassing the config hash. Use for floating tags (e.g. `:latest`). `--follow` streams logs after recreate. | 0 ok, 1 error                            |
 | `containerctl restart <name...> \| --all \| -l selector [--follow]` | Recreate containers from current config (stop, remove, create, start) without pulling. `--follow` streams logs after restart (single container only). | 0 ok, 1 error                            |
 | `containerctl pull [name...]`                                    | Pull images without reconciling. Skips containers with `disabled: true` in YAML.                                                          | 0 ok, 1 error                            |
-| `containerctl down [name...] [-l selector]`                      | Stop and remove managed containers. With no names/labels, the whole project.                                                              | 0 ok, 1 error                            |
+| `containerctl down [name...] [-l selector] [--all]`              | Stop and remove managed containers. With no names/labels, or with `--all` alone, the whole project (including managed containers no longer declared in the stack). Names and `-l` limit the set; `--all` does not widen a name or label filter. | 0 ok, 1 error                            |
 | `containerctl stop <name...> \| --all \| -l selector`            | Stop containers; they stay on disk and restart on next apply. Requires at least one name, `-l`, or `--all`.                               | 0 ok, 1 error                            |
 | `containerctl start <name...> \| --all \| -l selector [--follow]` | Start stopped containers without reconciling. Refuses if persistently disabled — run `enable` first. `--follow` streams logs after start (single container only). | 0 ok, 1 error                            |
 | `containerctl disable <name...>`                                 | **Persistent** off. Stops the container and records it in the project state file. Survives reboots and `apply`. Container is not removed. | 0 ok, 1 error                            |
@@ -318,7 +324,7 @@ kubectl-style selection against each container's stack YAML `labels:` map. Match
 | `start` | Requires at least one of: name(s), `-l`, or `--all` |
 | `stop` | Requires at least one of: name(s), `-l`, or `--all` |
 | `restart` | Requires at least one of: name(s), `-l`, or `--all` |
-| `down` | No names/`-l` → entire project; otherwise only matching managed containers |
+| `down` | No names/`-l`, or `--all` alone, → entire project; otherwise only matching managed containers |
 
 **Commands without `-l`:** `pull`, `repull`, `disable`, `enable`, `logs`, `exec`, `cp`, `images`, `volumes`, `networks`, `prune`, `generate`, `stack`, `serve`, `upgrade`.
 
@@ -1093,7 +1099,7 @@ Allowed commands:
 | `update [name...] [--apply] [--follow]` | subprocess |
 | `clear` | built-in: sends `{"type":"clear"}` |
 | `disable <name...>` | subprocess |
-| `down [name...]` | subprocess |
+| `down [name...] [--all]` | subprocess |
 | `edit` | built-in: sends `{"type":"edit","data":"<path>"}` |
 | `enable <name...> [--follow]` | subprocess |
 | `exec <name> [cmd...]` | see below |

@@ -70,7 +70,7 @@ containerctl status
 | `repull <name>` | Force-pull the image and recreate, ignoring the config hash. |
 | `restart <name...>` | Recreate from current config. No pull. Needs names, `-l`, or `--all`. |
 | `pull [name...]` | Pull images. No reconcile. |
-| `down [name...]` | Stop and remove. No names or `-l` means the whole project. |
+| `down [name...]` | Stop and remove. No names or `-l`, or `--all` alone, means the whole project (including managed containers no longer in the stack). Names and `-l` limit the set; `--all` does not widen them. |
 | `stop <name...>` | Stop. Stays on disk; next `apply` starts it. Needs names, `-l`, or `--all`. |
 | `start <name...>` | Start a stopped container. Needs names, `-l`, or `--all`. |
 | `disable <name...>` | Persistent off (state file). Survives reboot and `apply`. |
@@ -267,7 +267,7 @@ Reachable as `postgres`, `db.backend`, and `primary.backend`.
 
 ## Private registries
 
-Credentials are merged from auto-detected files (first match per registry), then `auth_file:` from the stack (wins on conflict). Docker/Podman JSON: `{"auths": {...}}`.
+Credentials are merged from auto-detected files (first match per registry), then `authfile:` from the stack (wins on conflict). This is the same file as podman, buildah, and skopeo `--authfile` (`auth.json`, or a Docker `config.json`): `{"auths": {...}}`. The old key `auth_file` is still accepted.
 
 | Source | Path |
 |---|---|
@@ -277,9 +277,9 @@ Credentials are merged from auto-detected files (first match per registry), then
 | Podman rootless | `$XDG_RUNTIME_DIR/containers/auth.json` |
 | Podman rootless fallback | `~/.config/containers/auth.json` |
 | Podman root | `/etc/containers/auth.json` |
-| Stack (highest) | `auth_file:` |
+| Stack (highest) | `authfile:` (relative paths are next to the stack file, not the working directory) |
 
-Used by `pull`, `apply`, `repull`, `update`, and remote digest checks.
+Used by `pull`, `apply`, `repull`, `update`, and remote digest checks. Those commands fail if `authfile` is set and cannot be read. Other commands still load the stack.
 
 ## How apply works
 
@@ -311,8 +311,12 @@ socket: string
 # content is always written to <data_path>/files/<name>.
 data_path: string
 
-# Docker/Podman auth JSON ({"auths":{...}}). Highest precedence for that registry.
-auth_file: string
+# Registry credential file: auth.json or Docker config.json ({"auths":{...}}).
+# Same path podman, buildah, and skopeo take as --authfile. Highest precedence.
+# A relative path is resolved against the stack file's directory, not the
+# process working directory. Do not use $PWD here: that expands to wherever
+# the command was started. auth_file is the old name and is still accepted.
+authfile: string
 
 # Small files embedded in the stack. YAML is the source of truth: the host
 # copy is rewritten on every create/recreate. name is a plain identifier.

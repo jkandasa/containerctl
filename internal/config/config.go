@@ -7,11 +7,14 @@ import (
 )
 
 type Stack struct {
-	Project    string      `yaml:"project"`
-	Runtime    string      `yaml:"runtime,omitempty"`
-	Socket     string      `yaml:"socket,omitempty"`
-	DataPath   string      `yaml:"data_path,omitempty"`
-	AuthFile   string      `yaml:"auth_file,omitempty"`
+	Project  string `yaml:"project"`
+	Runtime  string `yaml:"runtime,omitempty"`
+	Socket   string `yaml:"socket,omitempty"`
+	DataPath string `yaml:"data_path,omitempty"`
+	// AuthFile is the registry credential file (YAML key authfile; auth_file
+	// still accepted). $PWD here is the process working directory: expandEnv
+	// runs before the path is resolved against the stack file.
+	AuthFile   string      `yaml:"authfile,omitempty"`
 	Files      []FileDef   `yaml:"files,omitempty"`
 	Networks   []Network   `yaml:"networks,omitempty"`
 	Containers []Container `yaml:"containers"`

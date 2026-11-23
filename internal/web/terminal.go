@@ -59,7 +59,7 @@ var cmdHelp = map[string]string{
 	"clear":    "clear the terminal screen",
 	"cp":       "copy files between containers, or stream a tar with -  (host paths are CLI-only)",
 	"disable":  "persistently disable a container (survives apply)",
-	"down":     "stop and remove managed containers",
+	"down":     "stop and remove managed containers  (--all for the whole project)",
 	"edit":     "open the active stack file in the browser editor (vim keybindings)",
 	"enable":   "re-enable a previously disabled container  (--follow to stream logs, single container)",
 	"exec":     "run a non-interactive command in a container  e.g. exec <name> env",

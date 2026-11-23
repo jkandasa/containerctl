@@ -33,6 +33,9 @@ func Load(path string) (*Stack, error) {
 
 	applyDefaults(&s)
 	resolveVolumePaths(&s, stackDir)
+	if err := resolveAuthFile(&s, stackDir); err != nil {
+		return nil, err
+	}
 	if err := resolveFiles(&s, stackDir); err != nil {
 		return nil, err
 	}
@@ -40,6 +43,52 @@ func Load(path string) (*Stack, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// UnmarshalYAML accepts authfile and the previous auth_file key.
+func (s *Stack) UnmarshalYAML(node *yaml.Node) error {
+	type plain Stack
+	var raw struct {
+		plain          `yaml:",inline"`
+		AuthFileLegacy string `yaml:"auth_file,omitempty"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	*s = Stack(raw.plain)
+	legacy := strings.TrimSpace(raw.AuthFileLegacy)
+	current := strings.TrimSpace(s.AuthFile)
+	if current == "" {
+		s.AuthFile = legacy
+		return nil
+	}
+	s.AuthFile = current
+	if legacy != "" && legacy != current {
+		return fmt.Errorf("authfile and auth_file are both set; use authfile")
+	}
+	return nil
+}
+
+// resolveAuthFile makes authfile absolute against the stack file's directory.
+// A relative path is not resolved against the process working directory, so
+// pull and repull find the same credentials wherever the command is run.
+// The file is not required to exist here: status and other non-pull commands
+// must still load the stack. pull reports a missing or unreadable file.
+func resolveAuthFile(s *Stack, stackDir string) error {
+	path := strings.TrimSpace(s.AuthFile)
+	if path == "" {
+		s.AuthFile = ""
+		return nil
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(stackDir, path)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("authfile: %w", err)
+	}
+	s.AuthFile = abs
+	return nil
 }
 
 func expandEnv(s string) string {

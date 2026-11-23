@@ -131,7 +131,10 @@ func toHealthcheck(hc *container.HealthConfig) *rt.Healthcheck {
 }
 
 func (c *Client) RemoteImageDigest(ctx context.Context, img string) (string, error) {
-	u, p := credentialsFor(c.authFile, img)
+	u, p, err := credentialsFor(c.authFile, img)
+	if err != nil {
+		return "", err
+	}
 	var creds *registry.Credentials
 	if u != "" {
 		creds = &registry.Credentials{Username: u, Password: p}
@@ -211,7 +214,10 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (rt.ContainerUsa
 }
 
 func (c *Client) CheckTagUpdates(ctx context.Context, img string, max int) (*registry.TagUpdates, error) {
-	u, p := credentialsFor(c.authFile, img)
+	u, p, err := credentialsFor(c.authFile, img)
+	if err != nil {
+		return nil, err
+	}
 	var creds *registry.Credentials
 	if u != "" {
 		creds = &registry.Credentials{Username: u, Password: p}
@@ -220,8 +226,12 @@ func (c *Client) CheckTagUpdates(ctx context.Context, img string, max int) (*reg
 }
 
 func (c *Client) Pull(ctx context.Context, img string) error {
+	auth, err := registryAuth(c.authFile, img)
+	if err != nil {
+		return fmt.Errorf("pull %s: %w", img, err)
+	}
 	rc, err := c.cli.ImagePull(ctx, img, image.PullOptions{
-		RegistryAuth: registryAuth(c.authFile, img),
+		RegistryAuth: auth,
 	})
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", img, err)

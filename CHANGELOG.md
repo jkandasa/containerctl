@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `down --all`: stop and remove every managed container in the project. Same result as `down` with no names or `-l`, including containers no longer declared in the stack. Names and `-l` still limit the set.
+
+### Changed
+- The stack key for a registry credential file is `authfile`, matching podman, buildah, and skopeo `--authfile` (`auth.json` or Docker `config.json`). `auth_file` is still accepted.
+
+### Fixed
+- Relative `authfile` is resolved against the stack file's directory. `pull`, `repull`, `apply`, and `update` load registry credentials when the command runs from another directory. If that file cannot be read, or its stored credentials cannot be decoded, those commands fail instead of pulling anonymously. Other commands still load the stack. `$PWD` in that field is still the process working directory.
+
 ---
 
 ## [v1.13.0] - 2026-08-26
